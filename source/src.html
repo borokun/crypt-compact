@@ -93,6 +93,9 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--rim);border-bo
 .stick::after{content:"";position:absolute;inset:42px;border-radius:50%;border:1px dashed rgba(183,169,204,.35)}
 .knob{position:absolute;left:50%;top:50%;width:58px;height:58px;margin:-29px 0 0 -29px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#5a4a66,#2f2338);border:2px solid #6c5b78;box-shadow:0 4px 0 #0b070d;pointer-events:none;z-index:1}
 .stick.on .knob{border-color:var(--silver)}
+.pad.drag .stick{pointer-events:none;background:none;border:2px dashed rgba(183,169,204,.22)}
+.pad.drag .stick .knob{display:none}
+.pad.drag .stick::after{inset:0;border:0;display:grid;place-items:center;content:"drag anywhere";font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(236,228,214,.45);text-align:center}
 .mid{display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
 .mid > *{pointer-events:auto}
 .act{position:relative;width:138px;height:150px}
@@ -277,8 +280,8 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--bone-
       <details><summary>How to play</summary><div class="notes">
 <div><p class="eyebrow">Controls</p><h2>Phone and keyboard</h2>
 <dl class="controls">
-<dt>Move</dt><dd>Thumbstick, bottom left · <kbd>WASD</kbd> or arrows</dd>
-<dt>Shield</dt><dd>Hold Ward · hold <kbd>Space</kbd> or the left mouse button. It aims at Dracula, or at the mouse.</dd>
+<dt>Move</dt><dd>Drag anywhere with your thumb: Wren moves as far as your thumb does. Prefer a thumbstick? Switch it in the pause menu.</dd>
+<dt>Shield and focus</dt><dd>Hold Ward. The shield aims at Dracula, and Wren slows to 45% with his hitbox ringed, for threading tight gaps.</dd>
 <dt>Roll</dt><dd>Roll button · <kbd>Shift</kbd> or right mouse</dd>
 <dt>Lantern</dt><dd>Lantern button switches it on and off · <kbd>L</kbd></dd>
 <dt>Garlic</dt><dd>Garlic button, then stand still for 0.4 s · <kbd>G</kbd></dd>
@@ -352,6 +355,7 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--bone-
         <button class="ghost" id="botBtn" type="button" aria-pressed="false">Let the computer play</button>
         <button class="quiet" id="swapBtn" type="button">Swap control sides</button>
         <button class="quiet" id="camBtn" type="button" aria-pressed="true">Camera moves: on</button>
+        <button class="quiet" id="ctrlBtn" type="button">Controls: drag</button>
         <button class="quiet" id="pMenu" type="button">Main menu</button>
       </div>
       <p class="hint"><kbd>Esc</kbd> or <kbd>P</kbd> pauses on a keyboard</p>
@@ -539,6 +543,11 @@ let hero, boss, bullets, parts, texts, stats, laser, garlics, light, slowT = 0, 
 const keys = {};
 let mouse = { x: W/2, y: 400, active:false, down:false };
 let wardBtn = false, stickV = { x: 0, y: 0 }, stickId = null;
+// drag controls (the default on phones): Wren moves as far as the thumb does, wherever it touches
+let ctrlMode = 'drag';
+try { const v = localStorage.getItem('cc-ctrl'); if (v === 'stick' || v === 'drag') ctrlMode = v; } catch(e){}
+const DRAG_SENS = 1.5, DRAG_FOCUS = 0.45, DRAG_CAP = 2.2;   // thumb-to-floor scale, focus scale while Ward is held, top speed in SPEED units
+const drag = { id: null, lx: 0, ly: 0, px: 0, py: 0, ix: null, iy: null };
 const queued = { roll: false, lantern: false, garlic: false };   // one-shot button presses
 const bot = { on: false, mx: 0, my: 0, ward: false, restart: 0, used: false };   // used: the computer played any part of this run
 const isTouch = () => document.body.classList.contains('touch');
@@ -832,15 +841,28 @@ function update(rdt){
     hero.x += r.dx*SPEED*ROLL_SPEED*rdt; hero.y += r.dy*SPEED*ROLL_SPEED*rdt;
     hero.trail.push({ x: hero.x, y: hero.y }); if (hero.trail.length > 6) hero.trail.shift();
     if (r.t <= 0) hero.roll = null;
+  } else if (!bot.on && ctrlMode === 'drag'){
+    // drag: follow the thumb's travel, at most DRAG_CAP x top speed so a flick can't teleport through shots
+    hero.trail.length = 0;
+    let gm = 1; if (hero.goo) gm *= .5; if (hero.slowT > 0) gm *= OIL_SLOW;
+    if (hero.garlicT > 0){ drag.px = drag.py = 0; }
+    const cap = SPEED*DRAG_CAP*gm*rdt, d = Math.hypot(drag.px, drag.py), k = d > cap ? cap/d : 1;
+    const sx = drag.px*k, sy = drag.py*k;
+    drag.px -= sx; drag.py -= sy; hero.x += sx; hero.y += sy;
+    drag.ix = hero.x; drag.iy = hero.y;
+    hero.ivx = sx/Math.max(rdt, 1e-4); hero.ivy = sy/Math.max(rdt, 1e-4);   // the velocity Dracula reads to lead his shots
+    const l = Math.hypot(sx, sy); if (l > 0.05) hero.lastDir = { x: sx/l, y: sy/l };
   } else {
     hero.trail.length = 0;
-    let mult = 1; if (hero.ward) mult *= .65; if (hero.goo) mult *= .5; if (hero.slowT > 0) mult *= OIL_SLOW;
+    let mult = 1; if (hero.ward) mult *= .45; if (hero.goo) mult *= .5; if (hero.slowT > 0) mult *= OIL_SLOW;   // Ward doubles as focus
     hero.ivx = inp.mx*SPEED*mult; hero.ivy = inp.my*SPEED*mult;   // the velocity Dracula reads to lead his shots
     hero.x += hero.ivx*rdt; hero.y += hero.ivy*rdt;
     const l = Math.hypot(inp.mx, inp.my); if (l > 0.2) hero.lastDir = { x: inp.mx/l, y: inp.my/l };
   }
   if (hero.roll){ hero.ivx = hero.roll.dx*SPEED*ROLL_SPEED; hero.ivy = hero.roll.dy*SPEED*ROLL_SPEED; }
   clampArena(px, py);
+  // a wall or pillar stopped the drag: drop the rest so Wren doesn't keep pushing into it
+  if (drag.ix !== null){ if (Math.hypot(hero.x - drag.ix, hero.y - drag.iy) > .5){ drag.px = drag.py = 0; } drag.ix = drag.iy = null; }
   hero.moving = Math.hypot(hero.x-px, hero.y-py) > 20*rdt;
   const k = Math.min(1, rdt*10);
   hero.vx += ((hero.x-px)/Math.max(rdt, 1e-4) - hero.vx)*k; hero.vy += ((hero.y-py)/Math.max(rdt, 1e-4) - hero.vy)*k;
@@ -1581,7 +1603,8 @@ function drawHero(){
       ctx.strokeStyle = '#1e0e3f'; ctx.lineWidth = 1; ctx.stroke();
     }
   }
-  // hitbox
+  // hitbox (ringed while focusing with Ward)
+  if (hero.ward){ ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(x, y, 6.5, 0, 7); ctx.stroke(); }
   ctx.fillStyle = '#fff'; ctx.strokeStyle = '#120b14'; ctx.lineWidth = 1.2;
   ctx.beginPath(); ctx.arc(x,y,2.6,0,7); ctx.fill(); ctx.stroke();
 }
@@ -2269,7 +2292,7 @@ window.addEventListener('keydown', e => {
   }
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
-window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouse.down = false; wardBtn = false; releaseStick(); });
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouse.down = false; wardBtn = false; releaseStick(); drag.id = null; drag.px = drag.py = 0; });
 
 function toLocal(e){ const r = cv.getBoundingClientRect(), p = rigInv((e.clientX - r.left)/r.width*cssW, (e.clientY - r.top)/r.height*cssH); return unproj(VX + p.x/camS, VY + p.y/camS); }
 cv.addEventListener('pointerdown', e => {
@@ -2280,6 +2303,25 @@ cv.addEventListener('pointerdown', e => {
     e.preventDefault();
   }
 });
+// drag controls: a touch anywhere on the game moves Wren by the thumb's travel (screen px -> floor units at Wren's depth)
+cv.addEventListener('pointerdown', e => {
+  if (e.pointerType !== 'touch' || ctrlMode !== 'drag' || drag.id !== null) return;
+  if (!(state === 'play' || state === 'opening')) return;
+  drag.id = e.pointerId; drag.lx = e.clientX; drag.ly = e.clientY; mouse.active = false;
+  try { cv.setPointerCapture(e.pointerId); } catch(err){}
+  e.preventDefault();
+});
+cv.addEventListener('pointermove', e => {
+  if (e.pointerId !== drag.id) return;
+  const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly; drag.lx = e.clientX; drag.ly = e.clientY;
+  if (paused || !hero) return;
+  const s = projS(hero.y), vy = Math.max(.2, (projY(hero.y + 1) - projY(hero.y - 1))/2), z = rig.cur.z || 1;
+  const f = DRAG_SENS * (hero.ward ? DRAG_FOCUS : 1) / (camS*z);
+  drag.px += dx*f/s; drag.py += dy*f/vy;
+  const d = Math.hypot(drag.px, drag.py); if (d > 90){ drag.px *= 90/d; drag.py *= 90/d; }
+});
+const endDrag = e => { if (e.pointerId === drag.id){ drag.id = null; } };
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag); cv.addEventListener('lostpointercapture', endDrag);
 cv.addEventListener('pointermove', e => {
   if (e.pointerType === 'mouse'){ const p = toLocal(e); mouse.x = p.x; mouse.y = p.y; mouse.active = true; }
 });
@@ -2302,8 +2344,7 @@ function moveStick(e){
   const m = Math.hypot(dx, dy)/max;
   if (m < 0.12) stickV = { x: 0, y: 0 };
   else {
-    const t = Math.min(1, (m - 0.12) / 0.48), power = 0.35 + 0.65*t; // 35% speed at the edge of the dead zone, full by ~60% of the throw
-    stickV = { x: dx/(m*max)*power, y: dy/(m*max)*power };
+    stickV = { x: dx/(m*max), y: dy/(m*max) };   // full speed past the dead zone; holding Ward is the slow, precise speed
   }
 }
 function releaseStick(){ stickId = null; stickV = { x: 0, y: 0 }; knob.style.transform = ''; stick.classList.remove('on'); }
@@ -2317,6 +2358,9 @@ function setLefty(on){ pad.classList.toggle('lefty', on); try { localStorage.set
 try { setLefty(localStorage.getItem('cc-lefty') === '1'); } catch(e){}
 $('swapBtn').addEventListener('click', () => setLefty(!pad.classList.contains('lefty')));
 function syncCam(){ $('camBtn').textContent = 'Camera moves: ' + (camMove ? 'on' : 'off'); $('camBtn').setAttribute('aria-pressed', camMove ? 'true' : 'false'); }
+function syncCtrl(){ $('ctrlBtn').textContent = 'Controls: ' + (ctrlMode === 'drag' ? 'drag anywhere' : 'thumbstick'); pad.classList.toggle('drag', ctrlMode === 'drag'); }
+$('ctrlBtn').addEventListener('click', () => { ctrlMode = ctrlMode === 'drag' ? 'stick' : 'drag'; drag.px = drag.py = 0; drag.id = null; releaseStick(); try { localStorage.setItem('cc-ctrl', ctrlMode); } catch(e){} syncCtrl(); });
+syncCtrl();
 $('camBtn').addEventListener('click', () => { camMove = !camMove; try { localStorage.setItem('cc-cam', camMove ? '1' : '0'); } catch(e){} syncCam(); });
 syncCam();
 
