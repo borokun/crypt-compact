@@ -296,7 +296,7 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--bone-
       <h2>Six ways to fight back</h2>
       <div class="moves">
         <div class="move"><b>Graze</b><span>Let a purple shot brush past without touching its dark core. Each graze fills the lantern a little.</span></div>
-        <div class="move"><b>Lantern</b><span>A switch (<kbd>L</kbd>). Off, Wren's light shrinks, faster when standing still, and purple balls outside it are invisible. On, it reveals everything and burns oil, but Dracula attacks 25% faster with 25% faster shots. Oil refills as you move and reflect. Run dry and Wren slows by 30% for three seconds.</span></div>
+        <div class="move"><b>Lantern</b><span>A switch (<kbd>L</kbd>). Off, Wren's light shrinks, faster when standing still, and purple shots outside it are invisible (window beams and snipes always show). On, it reveals everything and burns oil, but Dracula attacks 25% faster with 25% faster shots. Oil refills as you move and reflect. Run dry and Wren slows by 30% for three seconds.</span></div>
         <div class="move"><b>Flare</b><span>Grazing purple shots charges the flare. Light the lantern with a full charge and it flares: a ring of light turns every purple shot it touches red.</span></div>
         <div class="move"><b>Roll</b><span>A quick tumble (<kbd>Shift</kbd>) that no shot can touch. Roll through a shot at the last instant for a <i>night step</i>: the room slows for a second and every block counts as perfect.</span></div>
         <div class="move"><b>Ward meter</b><span>The shield drains 15% a second while held and never refills on its own. Each perfect block on a red shot adds 20%. Run it dry and Ward locks for 1.5 seconds, then reforms at 20%.</span></div>
@@ -1394,7 +1394,7 @@ function botThink(rdt){
     const dx = b.x - hero.x, dy = b.y - hero.y, d = Math.hypot(dx, dy);
     if (b.botSeen === undefined) b.botSeen = Math.random() > BOT_MISS;
     // with the lantern off it can't see purple shots outside its light either
-    if (d < 240 && b.botSeen && (hero.lit || b.kind !== 'shadow' || d < hero.light)) near.push(b);
+    if (d < 240 && b.botSeen && !hiddenInDark(b)) near.push(b);
     if (b.kind === 'blood' && d < 70){
       const sp = Math.hypot(b.vx, b.vy) || 1, closing = -(dx*b.vx + dy*b.vy)/(d*sp);
       if (b.botT === undefined) b.botT = 0.05 + Math.random()*0.11;   // its reaction for this shot
@@ -1619,6 +1619,8 @@ function drawPickups(){
   }
   ctx.globalAlpha = 1;
 }
+// with the lantern off, ordinary purple shots outside Wren's light can't be seen; beams and camping snipes always can
+const hiddenInDark = b => b.kind === 'shadow' && b.own === 'boss' && !b.beam && !hero.lit && Math.hypot(b.x-hero.x, b.y-hero.y) > hero.light;
 // shots float at Wren's belt height (LIFT, in upright units), so a shot level with his hitbox is one that can hit him
 const LIFT = 24;
 function liftedAt(x, y, fn){ const P = proj(x, y); ctx.save(); ctx.translate(P.x, P.y - LIFT*P.s); ctx.scale(P.s, P.s); ctx.translate(-x, -y); fn(); ctx.restore(); }
@@ -1635,7 +1637,7 @@ function drawLifted(){
 }
 function drawBullets(){
   for (const b of bullets){
-    if (b.kind === 'shadow' && b.own === 'boss' && !hero.lit && Math.hypot(b.x-hero.x, b.y-hero.y) > hero.light) continue;   // lost in the dark
+    if (hiddenInDark(b)) continue;   // lost in the dark
     liftedAt(b.x, b.y, () => drawShot(b));
   }
 }
@@ -2023,7 +2025,7 @@ function drawGround(){
   }
   // every shot casts a small shadow on the floor, right under where it floats
   for (const b of bullets){
-    if (b.kind === 'shadow' && b.own === 'boss' && !hero.lit && Math.hypot(b.x-hero.x, b.y-hero.y) > hero.light) continue;
+    if (hiddenInDark(b)) continue;
     ctx.fillStyle = 'rgba(8,4,16,.5)'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r*1.05, 0, 7); ctx.fill();
   }
   if (hero.camp.t > CAMP_WARN && state === 'play'){
