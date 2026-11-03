@@ -1,0 +1,2388 @@
+<title>Crypt Compact</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#1e0e3f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pirata+One&family=Karla:wght@400;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: a full-bleed game. One canvas covers the viewport; HUD, controls and menus float above it, clear of the notch and home bar. */
+:root{
+  /* palette: Sanzo Wada, A Dictionary of Color Combinations, no. 331 */
+  --wada-black:#1e0e3f; /* Dull Violet Black */
+  --wada-violet:#4f4086;/* Violet */
+  --wada-mauve:#9a72aa; /* Light Mauve */
+  --wada-lake:#c53c69;  /* Indian Lake */
+  --night:var(--wada-black);
+  --wing:#2b1c55;
+  --rim:#3c2e70;
+  --table:var(--wada-mauve);
+  --blood:#ff3b4e;
+  --shadow:#a77bff;
+  --silver:#d9e6ec;
+  --gold:#f2b84b;
+  --bone:#ece4d6;
+  --bone-dim:#b7a9cc;
+  --display:"Pirata One","UnifrakturCook",Georgia,serif;
+  --body:"Karla",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  --st:env(safe-area-inset-top,0px); --sr:env(safe-area-inset-right,0px); --sb:env(safe-area-inset-bottom,0px); --sl:env(safe-area-inset-left,0px);
+  color-scheme:dark;
+}
+html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:var(--night);color:var(--bone)}
+body{font-family:var(--body);font-size:16px;line-height:1.5;-webkit-tap-highlight-color:transparent}
+button{font-family:var(--mono);font-weight:700;font-size:13px;letter-spacing:.08em;text-transform:uppercase;border:0;border-radius:6px;cursor:pointer;padding:13px 18px;color:#1a0d12;background:var(--bone);touch-action:manipulation}
+button:focus-visible{outline:2px solid var(--silver);outline-offset:3px}
+kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--rim);border-bottom-width:2px;border-radius:3px;padding:0 5px;color:var(--bone);white-space:nowrap}
+
+/* ---------- the game surface ---------- */
+#app{position:fixed;inset:0;overflow:hidden;background:var(--table)}
+#game{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;outline:none}
+#insetProbe{position:fixed;inset:0;padding:var(--st) var(--sr) var(--sb) var(--sl);visibility:hidden;pointer-events:none}
+
+/* ---------- HUD, pinned to the corners ---------- */
+.hud{position:absolute;inset:0;pointer-events:none;z-index:5;display:none}
+.in-game .hud{display:block}
+.hud > div{position:absolute;display:flex;align-items:center;gap:10px}
+.hud .tl{top:calc(var(--st) + 10px);left:calc(var(--sl) + 12px)}
+.hud .tc{top:calc(var(--st) + 12px);left:50%;transform:translateX(-50%);flex-direction:column;gap:5px;width:min(44vw,320px)}
+.hud .tr{top:calc(var(--st) + 14px);right:calc(var(--sr) + 14px);flex-direction:column;align-items:flex-end;gap:6px}
+.chipbox{background:rgba(30,14,63,.78);border-radius:999px;padding:6px 12px;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+#pauseBtn{pointer-events:auto;width:44px;height:44px;border-radius:50%;padding:0;background:rgba(30,14,63,.82);display:grid;place-items:center;box-shadow:0 2px 10px rgba(0,0,0,.3)}
+#pauseBtn i{display:block;width:14px;height:16px;border-left:5px solid var(--bone);border-right:5px solid var(--bone);box-sizing:border-box}
+#hearts{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.hpbar{position:relative;width:104px;height:9px;border-radius:5px;background:rgba(0,0,0,.5);overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+.hpbar i{position:absolute;left:0;top:0;bottom:0;border-radius:5px}
+#hpLag{background:#f2b84b;transition:width .5s ease .35s}
+#hpBar{background:linear-gradient(90deg,#a3122f,#ff3b4e);transition:width .12s}
+#hpNum{font-family:var(--mono);font-size:12px;color:var(--bone);min-width:3ch;text-align:right}
+#hearts.low .hpbar{animation:hpPulse .8s ease-in-out infinite}
+@keyframes hpPulse{50%{box-shadow:inset 0 0 0 1px #ff3b4e,0 0 10px rgba(255,59,78,.7)}}
+@media (prefers-reduced-motion:reduce){#hearts.low .hpbar{animation:none}}
+#phaseName{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--bone);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;text-shadow:0 1px 2px rgba(0,0,0,.6)}
+.bar{width:100%;height:8px;background:rgba(30,14,63,.8);border-radius:4px;overflow:hidden}
+.bar i{display:block;height:100%;width:100%;background:var(--wada-lake);transition:width .12s linear}
+.tr .bar{width:120px;height:7px}
+.bar.st i{background:var(--silver)}
+.bar.boss{position:relative}
+.bar.boss .tick{position:absolute;top:0;bottom:0;width:2px;background:rgba(236,228,214,.8);display:none}
+.story .bar.boss .tick{display:block}
+.bar.boss.open i{background:var(--gold);box-shadow:0 0 10px var(--gold)}
+.oilchip{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--bone)}
+.bar.oil{width:70px;height:6px}
+.bar.oil i{background:#f0a35a}
+.oilchip.low .bar.oil i{background:#ff6b5a}
+.oilchip.slow{outline:2px solid #ff6b5a}
+.bar.st.broke i{background:#6d6168}
+.bar.ln i{background:var(--gold)}
+.bar.ln.ready i{box-shadow:0 0 8px var(--gold)}
+.tr .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--bone);display:flex;align-items:center;gap:8px;text-shadow:0 1px 2px rgba(0,0,0,.6)}
+#botTag{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.1em;color:#2a1606;background:var(--gold);border-radius:999px;padding:3px 10px}
+.touch .hud .tr{display:none}
+/* narrow phones: hearts tuck under the pause button so the boss bar has the top edge to itself */
+@media (max-width:600px){ .hud .tl{flex-direction:column;align-items:flex-start;gap:8px} .hud .tc{width:min(52vw,320px)} #hearts{padding:5px 10px} .hpbar{width:84px} }
+
+/* ---------- phone controls, floating over the bottom corners ---------- */
+.pad{position:absolute;left:0;right:0;bottom:0;z-index:6;display:none;justify-content:space-between;align-items:flex-end;gap:8px;
+  padding:0 calc(var(--sr) + 14px) calc(var(--sb) + 14px) calc(var(--sl) + 14px);pointer-events:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.touch.in-game .pad{display:flex}
+.pad > *{pointer-events:auto}
+.pad.lefty{flex-direction:row-reverse}
+.pad.lefty #rollBtn{left:auto;right:0}.pad.lefty #wardBtn{right:auto;left:0}
+.stick{position:relative;width:128px;height:128px;border-radius:50%;background:radial-gradient(circle,rgba(43,28,85,.72) 0 62%,rgba(27,19,34,.72) 63%);border:2px solid rgba(60,46,112,.9);touch-action:none}
+.stick::after{content:"";position:absolute;inset:42px;border-radius:50%;border:1px dashed rgba(183,169,204,.35)}
+.knob{position:absolute;left:50%;top:50%;width:58px;height:58px;margin:-29px 0 0 -29px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#5a4a66,#2f2338);border:2px solid #6c5b78;box-shadow:0 4px 0 #0b070d;pointer-events:none;z-index:1}
+.stick.on .knob{border-color:var(--silver)}
+.mid{display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
+.mid > *{pointer-events:auto}
+.act{position:relative;width:138px;height:150px}
+#wardBtn{position:absolute;right:0;bottom:0;width:112px;height:112px;border-radius:50%;padding:0;background:conic-gradient(var(--silver) calc(var(--st-pct,100) * 1%),rgba(58,50,64,.85) 0);box-shadow:0 5px 0 #0b070d;touch-action:none;-webkit-touch-callout:none}
+#wardBtn span{position:absolute;inset:9px;border-radius:50%;display:grid;place-items:center;background:#cfdde4;color:#14212a;font-size:15px;letter-spacing:.1em;pointer-events:none}
+#wardBtn.on{transform:translateY(3px);box-shadow:0 2px 0 #0b070d}
+#wardBtn.on span{background:var(--gold)}
+#wardBtn.broke span{background:#6d6168;color:#2a2230}
+#rollBtn{position:absolute;left:0;top:0;z-index:1;width:60px;height:60px;border-radius:50%;padding:0;background:var(--wada-lake);color:#fff;font-size:11px;letter-spacing:.06em;box-shadow:0 4px 0 #0b070d;touch-action:none;-webkit-touch-callout:none}
+#rollBtn:active{transform:translateY(2px);box-shadow:0 2px 0 #0b070d}
+#rollBtn.cool{background:#5a3b5a;color:#bfa9c4}
+#lanternBtn{position:relative;width:66px;height:66px;border-radius:50%;padding:0;background:conic-gradient(var(--gold) calc(var(--ln,0) * 1%),rgba(58,50,64,.85) 0);box-shadow:0 4px 0 #0b070d;touch-action:none;-webkit-touch-callout:none}
+#lanternBtn span{position:absolute;inset:6px;border-radius:50%;display:grid;place-items:center;background:var(--wing);color:var(--bone-dim);font-size:9px;letter-spacing:.04em;pointer-events:none}
+#lanternBtn.on span{background:#ffd98a;color:#2a1606;box-shadow:0 0 14px 3px rgba(255,214,130,.7)}
+#lanternBtn.on span::after{content:" on"}
+#wardBtn.shattered span{background:#4a4150;color:#9b90a6}
+#wardBtn.shattered span::after{content:"";position:absolute;inset:18%;background:linear-gradient(45deg,transparent 46%,#9b90a6 47% 53%,transparent 54%),linear-gradient(-30deg,transparent 46%,#9b90a6 47% 53%,transparent 54%)}
+#lanternBtn.ready span{background:var(--gold);color:#2a1606;animation:lit .9s ease-in-out infinite alternate}
+@keyframes lit{from{box-shadow:0 0 0 0 rgba(242,184,75,.6)}to{box-shadow:0 0 16px 4px rgba(242,184,75,.85)}}
+#garlicBtn{padding:8px 12px;border-radius:999px;font-size:10px;letter-spacing:.06em;background:#efe6d2;color:var(--wada-black);touch-action:none}
+#garlicBtn.empty{opacity:.4}
+/* landscape phones: the board is centred, so the controls sit in the free space at the sides */
+@media (orientation:landscape) and (max-height:520px){
+  .stick{width:116px;height:116px}
+  .act{width:128px;height:136px}
+  #wardBtn{width:100px;height:100px}
+  .mid{position:absolute;left:calc(var(--sl) + 150px);bottom:calc(var(--sb) + 14px)}
+  .pad.lefty .mid{left:auto;right:calc(var(--sr) + 150px)}
+}
+
+/* ---------- overlay layers: menu, pause, results ---------- */
+.layer{position:absolute;inset:0;z-index:20;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;
+  display:flex;flex-direction:column;padding:calc(var(--st) + 16px) calc(var(--sr) + 16px) calc(var(--sb) + 16px) calc(var(--sl) + 16px);
+  background:rgba(14,6,32,.5)}
+.layer[hidden]{display:none!important}
+#menu{background:linear-gradient(180deg,rgba(14,6,32,.15),rgba(14,6,32,.72) 45%)}
+.sheet{margin:auto;width:100%;max-width:560px;box-sizing:border-box;background:rgba(30,14,63,.92);border:1px solid var(--rim);border-radius:18px;padding:22px 20px;display:flex;flex-direction:column;gap:16px;box-shadow:0 16px 48px rgba(0,0,0,.4)}
+.sheet.small{max-width:380px;text-align:center;align-items:stretch}
+.sheet h1{font-family:var(--display);font-weight:400;font-size:clamp(2.6rem,11vw,3.6rem);line-height:1;margin:0;text-align:center;text-wrap:balance}
+.sheet h1 span{color:var(--wada-lake)}
+.sheet h2{font-family:var(--display);font-weight:400;font-size:2rem;line-height:1.05;margin:0;text-wrap:balance}
+.tag{margin:0;color:var(--bone-dim);text-align:center;text-wrap:balance}
+.stack{display:flex;flex-direction:column;gap:10px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row > button{flex:1 1 140px}
+.primary{background:var(--wada-lake);color:#fff;box-shadow:0 4px 0 #7a1f40}
+.primary:active{transform:translateY(2px);box-shadow:0 2px 0 #7a1f40}
+.ghost{background:transparent;color:var(--gold);border:1px solid var(--gold);padding:12px 14px;font-size:11px}
+.ghost[aria-pressed="true"]{background:var(--gold);color:#2a1606}
+.quiet{background:transparent;color:var(--bone-dim);border:1px solid var(--rim);padding:11px 14px;font-size:11px}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--wada-lake);margin:0}
+.result-text{margin:0;color:var(--bone-dim)}
+.copytxt{margin:0;font-family:var(--mono);font-size:12px;background:rgba(14,6,32,.6);padding:8px 10px;border-radius:6px;user-select:all;-webkit-user-select:all;overflow-wrap:anywhere;text-align:left}
+.hint{margin:0;font-family:var(--mono);font-size:11px;color:var(--bone-dim);text-align:center}
+
+/* daily card */
+.daily{background:rgba(43,28,85,.9);border:1px solid var(--rim);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.daily h2{font-size:1.9rem}
+.dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.dbox{display:flex;flex-direction:column;gap:4px;min-width:0;background:rgba(30,14,63,.6);border-radius:8px;padding:10px 12px}
+.dlabel{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--bone-dim)}
+.dbox b{font-family:var(--display);font-weight:400;font-size:1.35rem;color:var(--gold)}
+.dbox span:last-child{font-size:14px}
+.profile{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;background:rgba(14,6,32,.55);border:1px solid var(--rim);border-radius:10px;padding:10px 14px}
+.profile b{font-family:var(--display);font-weight:400;font-size:1.4rem;color:var(--gold)}
+.profile span{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--bone-dim)}
+.ranked{display:flex;flex-direction:column;gap:6px;background:rgba(30,14,63,.6);border-radius:8px;padding:10px 12px}
+.ranked .big{font-family:var(--display);font-size:1.6rem;color:var(--gold);line-height:1}
+.ranked p{margin:0;font-size:14px}
+.badges{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px;justify-content:inherit}
+.badge{font-family:var(--mono);font-size:11px;padding:4px 9px;border-radius:999px;background:rgba(242,184,75,.16);color:var(--gold);border:1px solid rgba(242,184,75,.45)}
+.badge.new{background:var(--gold);color:#2a1606}
+.scoreList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;font-family:var(--mono);font-size:12px;text-align:left}
+.scoreList li{display:flex;justify-content:space-between;gap:12px;border-bottom:1px dashed rgba(236,228,214,.15);padding:2px 0}
+.scoreList li.total{border:0;font-size:14px;color:var(--gold);padding-top:6px}
+.rankTag{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin:0}
+.rankTag.ranked{color:var(--gold);background:none;padding:0}
+.rankTag.practice{color:var(--bone-dim)}
+button[disabled]{opacity:.45;cursor:not-allowed}
+.chips{list-style:none;margin:2px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-family:var(--mono);font-size:11px;padding:4px 9px;border-radius:999px;background:var(--rim);color:var(--bone)}
+.dbest{margin:0;font-weight:600}
+.dnext{margin:0;font-family:var(--mono);font-size:11px;color:var(--bone-dim);font-variant-numeric:tabular-nums}
+
+/* collapsible notes */
+details{border-top:1px solid var(--rim);padding-top:12px}
+summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;font-family:var(--display);font-size:1.5rem;line-height:1.2;padding:2px 0}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font-family:var(--mono);font-size:18px;color:var(--bone-dim)}
+details[open] summary::after{content:"–"}
+.notes{display:flex;flex-direction:column;gap:22px;padding-top:12px}
+.notes h2{font-size:1.6rem}
+.notes p{margin:0 0 8px;font-size:15px}
+.controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:6px 12px;font-size:14px}
+.controls dt{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--bone-dim);padding-top:2px}
+.controls dd{margin:0}
+.cast{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.cast figure{margin:0;background:var(--table);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:6px;align-items:center;min-width:0}
+.cast img{height:120px;width:auto;max-width:100%;object-fit:contain}
+.cast figcaption{color:var(--wada-black);font-size:13px;text-align:center}
+.cast figcaption b{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase}
+.shots,.moves{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.shot,.move{background:var(--wing);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.shot b{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.move b{font-family:var(--display);font-weight:400;font-size:1.25rem;line-height:1.1}
+.shot span,.move span{font-size:14px;color:var(--bone-dim)}
+.dot{width:12px;height:12px;border-radius:50%;display:inline-block;vertical-align:-1px;margin-right:6px}
+.loop{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:5px;font-size:15px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:460px}
+th,td{text-align:left;padding:8px;border-bottom:1px solid var(--rim);vertical-align:top}
+th{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--bone-dim);font-weight:500}
+td:first-child{font-family:var(--display);font-size:1.05rem;white-space:nowrap}
+td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--bone-dim)}
+.swatches{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+.swatches div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.swatches i{display:block;height:44px;border-radius:6px;border:1px solid rgba(255,255,255,.12);margin-bottom:4px}
+.swatches b{font-size:13px}
+.swatches span{font-family:var(--mono);font-size:10px;color:var(--bone-dim)}
+.map{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);border-top:1px solid var(--rim)}
+.map div{padding:8px 8px 8px 0;border-bottom:1px solid var(--rim);font-size:14px}
+.map div:nth-child(odd){font-family:var(--mono);font-size:11px;color:var(--bone-dim);text-transform:uppercase;letter-spacing:.06em;padding-top:10px}
+@media (max-width:480px){.map,.controls{grid-template-columns:1fr}.map div:nth-child(odd){border-bottom:0;padding-bottom:0}.controls dd{margin-bottom:6px}}
+@media (prefers-reduced-motion: reduce){#lanternBtn.ready span{animation:none}}
+</style>
+
+<div id="app">
+  <canvas id="game" tabindex="0" aria-label="Crypt Compact: Wren on the crypt floor, Dracula on the throne in the lid"></canvas>
+  <div id="insetProbe" aria-hidden="true"></div>
+
+  <div class="hud" id="hud">
+    <div class="tl"><button id="pauseBtn" type="button" aria-label="Pause"><i></i></button><span id="hearts" class="chipbox" role="meter" aria-label="Health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><span class="hpbar"><i id="hpLag" style="width:100%"></i><i id="hpBar" style="width:100%"></i></span><b id="hpNum">100</b></span><span class="chipbox oilchip" id="oilChip" aria-label="Lantern oil"><span>Oil</span><span class="bar oil"><i id="oilBar"></i></span></span></div>
+    <div class="tc"><span id="phaseName">Dracula</span><div class="bar boss" id="bossWrap" aria-hidden="true"><i id="bossBar"></i><b class="tick" style="left:70%"></b><b class="tick" style="left:40%"></b></div><span id="botTag" hidden>Computer playing</span></div>
+    <div class="tr">
+      <span class="lbl">Shield <span class="bar st" id="stBarWrap" aria-hidden="true"><i id="stBar"></i></span></span>
+      <span class="lbl">Flare charge <span class="bar ln" id="lnBarWrap" aria-hidden="true"><i id="lnBar" style="width:0"></i></span></span>
+      <span class="lbl" id="garlicTxt">Garlic 3</span>
+    </div>
+  </div>
+
+  <div class="pad" id="pad">
+    <div class="stick" id="stick" role="application" aria-label="Thumbstick: move Wren"><div class="knob" id="knob"></div></div>
+    <div class="mid">
+      <button id="lanternBtn" type="button" aria-label="Lantern on or off. Lighting it with a full charge flares."><span>Lantern</span></button>
+      <button id="garlicBtn" type="button" aria-label="Drop garlic">Garlic <b id="garlicN">3</b></button>
+    </div>
+    <div class="act">
+      <button id="rollBtn" type="button" aria-label="Dodge roll">Roll</button>
+      <button id="wardBtn" type="button" aria-label="Hold to raise the shield"><span>Ward</span></button>
+    </div>
+  </div>
+
+  <!-- title menu -->
+  <div class="layer" id="menu" role="dialog" aria-label="Main menu">
+    <div class="sheet">
+      <h1>Crypt <span>Compact</span></h1>
+      <p class="tag">Turn Dracula's bullets against him.</p>
+
+      <div class="profile" id="profile" aria-live="polite"><b id="pfTitle">Grave Digger</b><span id="pfRenown">0 renown</span><span id="pfStreak"></span></div>
+
+      <section class="daily" aria-labelledby="dName">
+        <p class="eyebrow">Daily level <span id="dNum">#1</span> · <span id="dDate"></span></p>
+        <h2 id="dName">The Weeping Chandelier</h2>
+        <div class="dgrid">
+          <div class="dbox"><span class="dlabel">Patterns · <span id="dHp">270 HP</span> · 100 health</span><ul class="chips" id="dPats"></ul></div>
+        </div>
+        <div class="ranked" id="dRanked">
+          <span class="dlabel">Your ranked try</span>
+          <span class="big" id="dScore">Waiting</span>
+          <p id="dBest">Only your first run of the day ranks. Make it count.</p>
+          <ul class="badges" id="dBadges"></ul>
+        </div>
+        <div class="row">
+          <button class="primary" id="dPlay" type="button">Play your ranked try</button>
+          <button class="ghost" id="dWatch" type="button">Watch the computer try it</button>
+        </div>
+        <button class="quiet" id="dShare" type="button" hidden>Copy today's result</button>
+        <p class="copytxt" id="dShareTxt" hidden></p>
+        <p class="dnext">New level in <span id="dNext">–</span></p>
+      </section>
+
+      <details><summary>How to play</summary><div class="notes">
+<div><p class="eyebrow">Controls</p><h2>Phone and keyboard</h2>
+<dl class="controls">
+<dt>Move</dt><dd>Thumbstick, bottom left · <kbd>WASD</kbd> or arrows</dd>
+<dt>Shield</dt><dd>Hold Ward · hold <kbd>Space</kbd> or the left mouse button. It aims at Dracula, or at the mouse.</dd>
+<dt>Roll</dt><dd>Roll button · <kbd>Shift</kbd> or right mouse</dd>
+<dt>Lantern</dt><dd>Lantern button switches it on and off · <kbd>L</kbd></dd>
+<dt>Garlic</dt><dd>Garlic button, then stand still for 0.4 s · <kbd>G</kbd></dd>
+<dt>Pause</dt><dd>Top-left button · <kbd>Esc</kbd> or <kbd>P</kbd></dd>
+</dl></div>
+<div><p class="eyebrow">Moves</p>
+      <h2>Six ways to fight back</h2>
+      <div class="moves">
+        <div class="move"><b>Graze</b><span>Let a purple shot brush past without touching its dark core. Each graze fills the lantern a little.</span></div>
+        <div class="move"><b>Lantern</b><span>A switch (<kbd>L</kbd>). Off, Wren's light shrinks, faster when standing still, and purple balls outside it are invisible. On, it reveals everything and burns oil, but Dracula attacks 25% faster with 25% faster shots. Oil refills as you move and reflect. Run dry and Wren slows by 30% for three seconds.</span></div>
+        <div class="move"><b>Flare</b><span>Grazing purple shots charges the flare. Light the lantern with a full charge and it flares: a ring of light turns every purple shot it touches red.</span></div>
+        <div class="move"><b>Roll</b><span>A quick tumble (<kbd>Shift</kbd>) that no shot can touch. Roll through a shot at the last instant for a <i>night step</i>: the room slows for a second and every block counts as perfect.</span></div>
+        <div class="move"><b>Ward meter</b><span>The shield drains 15% a second while held and never refills on its own. Each perfect block on a red shot adds 20%. Run it dry and Ward locks for 1.5 seconds, then reforms at 20%.</span></div>
+        <div class="move"><b>Triple</b><span>Land three perfect blocks in a row and the third shot splits into three gold shots. Three pips over Wren count the chain.</span></div>
+        <div class="move"><b>Garlic</b><span>Crushing a bulb (<kbd>G</kbd>) roots Wren for 0.4 seconds: no moving, no shield, no roll, and any hit does double damage. Finish it and a 1.5-second cloud dissolves red shots. Every fifth one leaves a heart shard that heals 10, up to three per cloud. Four shards make a heart. Three bulbs per fight.</span></div>
+        <div class="move"><b>Pillar kick</b><span>Roll into a standing pillar and it topples into a low wall that stops everything, beams included, for eight seconds.</span></div>
+      </div></div>
+<div><p class="eyebrow">Health</p>
+      <h2>Some hits hurt more</h2>
+      <ul class="scoreList">
+        <li><span>A red shot or bat you didn't block</span><span>−10</span></li>
+        <li><span>A purple shot</span><span>−15</span></li>
+        <li><span>A camping snipe</span><span>−25</span></li>
+        <li><span>A window beam</span><span>−30</span></li>
+        <li><span>Hit while crushing garlic</span><span>double</span></li>
+        <li><span>Heart shard</span><span>+10</span></li>
+      </ul>
+      <p>Wren has 100 health. The yellow trail on the bar shows the last hit.</p></div>
+<div><p class="eyebrow">Scoring</p>
+      <h2>One ranked try a day</h2>
+      <p>Your first run of each day is your ranked score. Quitting, restarting or handing over to the computer ends it. Every later run is practice and never ranks.</p>
+      <ul class="scoreList">
+        <li><span>Beat Dracula</span><span>1,000</span></li>
+        <li><span>Speed: full marks under 1:00, nothing past 4:00</span><span>up to 500</span></li>
+        <li><span>Health left: 4.5 per point</span><span>up to 450</span></li>
+        <li><span>Perfect blocks ×4 · triples ×15 · grazes ×5 · night steps ×20</span><span>up to 400</span></li>
+        <li><span>A loss: share of Dracula's health taken</span><span>up to 600</span></li>
+      </ul>
+      <p>Badges: <b>First try</b> (win your ranked run) · <b>Flawless</b> (never hit) · <b>In the dark</b> (never light the lantern) · <b>No garlic</b> · <b>Swift</b> (under 1:30) · <b>Mirror master</b> (40 perfect blocks). Ranked scores add up to renown, which sets your title, from Grave Digger to Dawnbringer.</p></div>
+<div><p class="eyebrow">Bullet language</p>
+      <h2>Color tells you what to do</h2>
+      <div class="shots">
+        <div class="shot"><b><i class="dot" style="background:var(--blood)"></i>Blood</b><span>Red shots. The shield reflects them. This is your ammunition.</span></div>
+        <div class="shot"><b><i class="dot" style="background:var(--shadow)"></i>Shadow</b><span>Violet shots, including Dracula's anti-camping snipes. They pass through the shield.</span></div>
+        <div class="shot"><b><i class="dot" style="background:var(--silver)"></i>Reflected</b><span>Flies along your aim and deals 3 damage.</span></div>
+        <div class="shot"><b><i class="dot" style="background:var(--gold)"></i>Perfect</b><span>Shield raised within 0.153 s of impact. Homes in for 8 damage and refunds stamina and oil.</span></div>
+        <div class="shot"><b><i class="dot" style="background:var(--gold);box-shadow:0 0 8px var(--gold)"></i>Open window</b><span>Dracula blocks reflected shots unless his guard is open: right after he finishes a pattern. Shots that land then deal double damage.</span></div>
+      </div></div>
+<div><p class="eyebrow">Core loop</p>
+      <h2>Read, wait, flick</h2>
+      <ol class="loop">
+        <li>Read the pattern: which shots are red and which are violet.</li>
+        <li>Slip between the violet ones. The hitbox is the white dot at Wren's belt, not the whole cloak.</li>
+        <li>Let the red ones come close, then raise the shield at the last moment for a gold parry. Save your best reflections for when Dracula's guard is open.</li>
+        <li>Hide behind the stone pillars when it gets dense. They soak up 25 shots each, then crumble.</li>
+        <li>Stay off the glowing green cracks. They halve your speed.</li>
+        <li>Drop the shield to let stamina refill. A cracked shield locks you out for a second.</li>
+        <li>Keep moving. Stay in one small area for about two seconds and a violet ring marks the spot. Dracula then fires aimed purple shots at it until you leave.</li>
+      </ol></div>
+</div></details>
+<details><summary>About the toy</summary><div class="notes">
+<div><p class="eyebrow">The pitch</p>
+      <h2>A castle keep that opens</h2>
+      <p>Closed, the toy is a square castle keep with spired towers, glowing orange windows, two green windows like eyes, and a big orange gate as the clasp. Open it and the lid becomes Dracula's throne room: a rose window, silver organ pipes and candelabras. The base folds down into a battlemented courtyard with a checkered marble floor, two stone pillars and a seam of green light, where Wren is trapped.</p>
+      <p>Wren has no weapon, only a mirror shield. Raise it into a red shot and the shot flies back where it came from. Raise it at the last instant and the shot turns gold and chases him down. Hold it too long and it cracks.</p></div>
+<div><p class="eyebrow">The cast</p>
+      <h2>Two figures, four poses each</h2>
+      <div class="cast">
+        <figure><img src="%%DRAC_CAST%%" alt="Dracula figure casting purple magic with his bat-wing cape spread open"><figcaption><b>Boss</b>Dracula. Idle, walk, cast and hit poses. He casts whenever a pattern is firing.</figcaption></figure>
+        <figure><img src="%%WREN_GUARD%%" alt="Wren figure in a teal hood raising a chrome mirror shield"><figcaption><b>Hero</b>Wren. Front and back views, so Wren faces Dracula while blocking and turns toward wherever you aim.</figcaption></figure>
+      </div></div>
+<div><p class="eyebrow">Toy to game</p>
+      <h2>Every part of the playset has a job</h2>
+      <div class="map">
+        <div>Closed keep</div><div>Title screen. Its green windows glow while it waits, and on a loss it closes back over you.</div>
+        <div>Throne room lid</div><div>The boss stage. Dracula drifts across the dais in front of the throne and fires.</div>
+        <div>Courtyard floor</div><div>The player arena: the checkered marble tiles inside the battlements. The cards, goblets and bones are scattered on the ledge below the stairs.</div>
+        <div>Stone pillars</div><div>Cover. Each blocks 25 of Dracula's shots, then crumbles. Roll into one to topple it into a wall.</div>
+        <div>Wren's gear</div><div>The lantern at the hip is the burst, and the garlic belt is the trap.</div>
+        <div>Green cracks</div><div>Hazard. Standing on the glow halves Wren's speed.</div>
+        <div>Storm sky</div><div>Lightning behind the castle. When Dracula drops below 40% and gets furious, it strikes red and more often.</div>
+        <div>Computer player</div><div>Looks a third of a second ahead, scores 25 possible moves against where every shot will be, and uses all six moves. Pick "Watch the computer try it" in the menu, and use the pause menu to take over mid-fight.</div>
+      </div></div>
+<div><p class="eyebrow">Palette</p>
+      <h2>Wada combination no. 331</h2>
+      <p>The tabletop and the page use one combination from Sanzo Wada's <i>A Dictionary of Color Combinations</i>, picked to match the toy's blackened purple plastic and crimson cape lining.</p>
+      <div class="swatches">
+        <div><i style="background:var(--wada-black)"></i><b>Dull Violet Black</b><span>#1E0E3F · page</span></div>
+        <div><i style="background:var(--wada-violet)"></i><b>Violet</b><span>#4F4086 · table edge</span></div>
+        <div><i style="background:var(--wada-mauve)"></i><b>Light Mauve</b><span>#9A72AA · tabletop</span></div>
+        <div><i style="background:var(--wada-lake)"></i><b>Indian Lake</b><span>#C53C69 · accents</span></div>
+      </div></div>
+</div></details>
+    </div>
+  </div>
+
+  <!-- pause -->
+  <div class="layer" id="pause" role="dialog" aria-label="Paused" hidden>
+    <div class="sheet small">
+      <h2>Paused</h2>
+      <div class="stack">
+        <button class="primary" id="pResume" type="button">Resume</button>
+        <button class="quiet" id="pRestart" type="button">Restart</button>
+        <button class="ghost" id="botBtn" type="button" aria-pressed="false">Let the computer play</button>
+        <button class="quiet" id="swapBtn" type="button">Swap control sides</button>
+        <button class="quiet" id="camBtn" type="button" aria-pressed="true">Camera moves: on</button>
+        <button class="quiet" id="pMenu" type="button">Main menu</button>
+      </div>
+      <p class="hint"><kbd>Esc</kbd> or <kbd>P</kbd> pauses on a keyboard</p>
+    </div>
+  </div>
+
+  <!-- results -->
+  <div class="layer" id="result" role="dialog" aria-label="Result" hidden>
+    <div class="sheet small">
+      <p class="rankTag" id="ovTag"></p>
+      <h2 id="ovTitle">Dawn breaks</h2>
+      <p class="result-text" id="ovText"></p>
+      <ul class="scoreList" id="ovScore"></ul>
+      <ul class="badges" id="ovBadges" style="justify-content:center"></ul>
+      <div class="stack">
+        <button class="primary" id="ovBtn" type="button">Play again</button>
+        <button class="quiet" id="ovShare" type="button" hidden>Copy today's result</button>
+        <p class="copytxt" id="rShareTxt" hidden></p>
+        <div class="row">
+          <button class="ghost" id="ovBot" type="button">Watch the computer</button>
+        </div>
+        <button class="quiet" id="rMenu" type="button">Main menu</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script>
+(() => {
+const W = 360, H = 562;
+const LID = { x: 10, y: 4, w: 340, h: 275 };
+// camera: the whole compact is fitted into the free part of the screen, and the tabletop fills everything else
+// 2.5D: the board is a photo of the open castle-keep playset, seen from the front and above.
+// Gameplay stays on a flat board (world units). Drawing maps it onto the photo (image pixels):
+// the lid is an upright wall seen face-on (one uniform scale); the floor is a plane whose rows were
+// measured from the photo's tile edges, so Wren and the shots line up with the painted tiles.
+// world y 110 is the front of the throne dais; 110..347 is the stairs and the rubble ledge; 347..622 the five tile rows
+const LIDK = 1.08, HINGE_W = 110, HINGE_I = 752, CX_I = 482;
+const FLOOR_ROWS = [[110,752],[347,925],[402,961],[457,997],[512,1037],[567,1080],[622,1124]];  // world y -> image y
+const FLOOR_S0 = 1.032, FLOOR_DS = 0.00082;   // tile width in photo px per world unit at the back row, and its growth toward the front
+function projS(y){
+  if (y <= HINGE_W) return LIDK;
+  if (y <= 347) return LIDK + (FLOOR_S0 - LIDK)*(y - HINGE_W)/(347 - HINGE_W);
+  return FLOOR_S0 + FLOOR_DS*(y - 347);
+}
+function projCX(y){ return CX_I; }
+function projY(y){
+  if (y <= HINGE_W) return HINGE_I + (y - HINGE_W)*LIDK;
+  const R = FLOOR_ROWS;
+  for (let i = 1; i < R.length; i++) if (y <= R[i][0] || i === R.length-1){
+    const [a0, b0] = R[i-1], [a1, b1] = R[i]; return b0 + (y - a0)*(b1 - b0)/(a1 - a0);
+  }
+}
+function proj(x, y){ const s = projS(y); return { x: projCX(y) + (x - 180)*s, y: projY(y), s }; }
+function unproj(X, Y){
+  let y;
+  if (Y <= HINGE_I) y = HINGE_W + (Y - HINGE_I)/LIDK;
+  else {
+    const R = FLOOR_ROWS; y = R[R.length-1][0];
+    for (let i = 1; i < R.length; i++) if (Y <= R[i][1] || i === R.length-1){
+      const [a0, b0] = R[i-1], [a1, b1] = R[i]; y = a0 + (Y - b0)*(a1 - a0)/(b1 - b0); break;
+    }
+  }
+  return { x: 180 + (X - projCX(y))/projS(y), y };
+}
+// the camera frames the photographed toy (image pixels)
+const FOCUS = { x0: 140, y0: 420, x1: 825, y1: 1195 };
+// the flat world raster the per-frame layers are drawn into before being mapped onto the photo
+const FW = { x0: -260, x1: 620, y0: -330, y1: 720 };
+let VX = -100, VY = -100, VW = 560, VH = 760; // visible world rect
+let camS = 1, dpr = 1, cssW = 360, cssH = 640, insets = { t: 0, r: 0, b: 0, l: 0 };
+// the checkered floor: 8 tiles of 55 units across, from the hinge (y 272) to the front edge (y 622)
+const TILES = { x0: -40, x1: 400, y0: 347, y1: 622 };
+// stone pillars at the back corners: cover that blocks Dracula's shots until it crumbles; a roll into one knocks it over
+const PILLARS = [
+  { x0: -45, x1: 15, y0: 362, y1: 399, cx: -15, by: 399, img: 'pillarL' },
+  { x0: 345, x1: 405, y0: 359, y1: 396, cx: 375, by: 396, img: 'pillarR' },
+].map(p => ({ ...p, hp: 25, max: 25, hitT: 0, fallen: null }));
+const GOO = [ { x: 178, y: 475, r: 32 }, { x: 317, y: 423, r: 16 }, { x: 159, y: 448, r: 12 } ];   // glowing cracks in the photo
+const IMG_SRC = { closed: '%%CLOSED%%', scene: '%%SCENE%%', pillarL: '%%PILLARL%%', pillarR: '%%PILLARR%%',
+  wren_idle: '%%WREN_IDLE%%', wren_walk: '%%WREN_WALK%%', wren_guard: '%%WREN_GUARD%%', wren_hit: '%%WREN_HIT%%',
+  wrenb_idle: '%%WRENB_IDLE%%', wrenb_walk: '%%WRENB_WALK%%', wrenb_hit: '%%WRENB_HIT%%',
+  drac_idle: '%%DRAC_IDLE%%', drac_walk: '%%DRAC_WALK%%', drac_cast: '%%DRAC_CAST%%', drac_hit: '%%DRAC_HIT%%' };
+const IMG = {};
+const cv = document.getElementById('game');
+let ctx = cv.getContext('2d');
+const screenCtx = ctx;
+let mainCtx = ctx;   // the plane being drawn: the screen, or the middle plane of the camera stand
+let fxL = null, buL = null, fxC = null, buC = null;   // flat offscreen layers, warped onto the screen each frame
+const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+let bg = null, ready = false;
+const whiteCache = {};
+const C = { blood:'#ff3b4e', shadow:'#a77bff', silver:'#d9e6ec', gold:'#f2b84b', bone:'#ece4d6' };
+const DRAC_K = 150/335, WREN_K = 60/328; // game px per sprite px, from the idle poses
+
+// ---------- tuning ----------
+const SPEED = 215;                       // Wren's top speed, board units per second
+let CAMP_WARN = 1.4, CAMP_ARM = 0.8;   // seconds still before the mark appears, then before the shots start
+const ROLL_T = 0.3, ROLL_IFRAME = 0.24, ROLL_CD = 0.8, ROLL_SPEED = 2.3;
+const SLOW_T = 1.1, SLOW_SCALE = 0.35;   // perfect dodge: real seconds of slow motion, and how slow the world runs
+const GRAZE_GAIN = 6, DODGE_GAIN = 15, PERFECT_GAIN = 4;   // lantern fill per graze / per perfect dodge (100 = full)
+const GARLIC_PER_PHASE = 3, GARLIC_T = 6, GARLIC_R = 52;
+const SLAB_T = 8, SLAB_HP = 40;          // a kicked-over pillar lasts this long / soaks this many shots
+const PERFECT_WIN = 0.153;               // seconds after raising the shield that a block counts as perfect (was 0.18)
+const OPEN_DAILY = 1.4;                  // Dracula's open window after each pattern
+// difficulty: tuned with the computer player at four skill levels across many days (skill2.js)
+const DIFF = { shot: 1.3, gap: 0.2, red: 22, purple: 30, snipe: 35, beam: 41, bossHp: 1.4, shard: 5 };
+const OIL_MOVE = 2.5, OIL_LIT = 7, OIL_REFLECT = 6, OIL_PERFECT = 10, OIL_SLOW_T = 3, OIL_SLOW = 0.7;
+// 1 · ward is a finite resource
+const WARD_DRAIN = 15;        // % of the meter lost per second while the shield is held
+const WARD_PERFECT = 20;      // % back for a perfect block on a red shot (the only way to refill it)
+const WARD_FLOOR = 20;        // after it runs dry, the shield reforms at this level so a run can't soft-lock
+const WARD_SPENT_LOCK = 1.5;  // seconds locked out after holding it until empty
+const SHATTER_T = 2.5;        // seconds Ward and Roll stay locked after a death ball shatters the shield
+// 3 · garlic
+const GARLIC_CAST = 0.4, AURA_T = 1.5, AURA_R = 58, SHARDS_PER_HEART = 4, SHARD_CHANCE = 0.2, SHARDS_PER_CLOUD = 3;
+// 4 · lantern
+const LIGHT_MAX = 900, LIGHT_MIN = 60, LIGHT_START = 240, LIGHT_OFF_CAP = 260, LIGHT_DIM_MOVE = 10, LIGHT_DIM_STILL = 40, LIT_AGGRO = 1.25;
+const BAND_CELLS = 10;                   // Blood Moon: width of the hazardous rim, in walk-mask cells (~16 board units)
+
+function loadImages(){
+  return Promise.all(Object.entries(IMG_SRC).map(([k, src]) => new Promise(res => {
+    const im = new Image(); im.onload = () => { IMG[k] = im; res(); }; im.onerror = res; im.src = src;
+  })));
+}
+
+// the flat layers are drawn in world units into a fixed raster; warp copies them onto the screen
+// in thin rows, each row placed and stretched where that depth of the board sits in the photo
+let FR = 1;   // raster pixels per world unit
+function warp(dst, src, ox = 0, oy = 0){
+  const k = camS*dpr, step = Math.max(1, 4/(k*1.35));
+  dst.save(); rigSet(dst, 1, 0, 0, 1, 0, 0);
+  for (let y0 = FW.y0; y0 < FW.y1; y0 += step){
+    const y1 = y0 + step, ym = (y0 + y1)/2, s = projS(ym), cx = projCX(ym);
+    const dy0 = (projY(y0) - VY)*k + oy*k, dy1 = (projY(y1) - VY)*k + oy*k;
+    if (dy1 < -2 || dy0 > dst.canvas.height + 2) continue;
+    const xl = (cx + (FW.x0 - 180)*s - VX)*k + ox*k, xr = (cx + (FW.x1 - 180)*s - VX)*k + ox*k;
+    dst.drawImage(src, 0, (y0 - FW.y0)*FR, src.width, step*FR, xl, dy0, xr - xl, dy1 - dy0 + 0.75);
+  }
+  dst.restore();
+}
+function buildBg(){
+  // the tabletop, then the photographed toy (its pillars are drawn separately so they can fall)
+  bg = document.createElement('canvas'); bg.width = cv.width; bg.height = cv.height;
+  const g = bg.getContext('2d'); g.setTransform(dpr*camS,0,0,dpr*camS,-VX*dpr*camS,-VY*dpr*camS);
+  if (IMG.scene) g.drawImage(IMG.scene, 0, 0, IMG.scene.width, IMG.scene.height);
+  // the per-frame layers, a flat raster of the world
+  FR = Math.min(2.2, camS*dpr*1.35);
+  const rw = Math.round((FW.x1 - FW.x0)*FR), rh = Math.round((FW.y1 - FW.y0)*FR);
+  fxL = document.createElement('canvas'); fxL.width = rw; fxL.height = rh; fxC = fxL.getContext('2d');
+  buL = document.createElement('canvas'); buL.width = rw; buL.height = rh; buC = buL.getContext('2d');
+}
+
+function readInsets(){
+  const cs = getComputedStyle(document.getElementById('insetProbe'));
+  insets = { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
+}
+function resize(){
+  const app = document.getElementById('app');
+  cssW = Math.max(1, app.clientWidth); cssH = Math.max(1, app.clientHeight);
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(cssW*dpr); cv.height = Math.round(cssH*dpr);
+  readInsets();
+  // keep the compact clear of the HUD strip at the top and, on a phone held upright, the controls at the bottom
+  const portrait = cssH >= cssW;
+  const top = insets.t + 56, bottom = insets.b + (isTouch() && portrait ? 176 : 10);
+  const left = insets.l + 6, right = insets.r + 6;
+  const aw = Math.max(80, cssW - left - right), ah = Math.max(80, cssH - top - bottom);
+  camS = Math.min(aw/(FOCUS.x1 - FOCUS.x0), ah/(FOCUS.y1 - FOCUS.y0));
+  const acx = left + aw/2, acy = top + ah/2;
+  VX = (FOCUS.x0 + FOCUS.x1)/2 - acx/camS; VY = (FOCUS.y0 + FOCUS.y1)/2 - acy/camS;
+  VW = cssW/camS; VH = cssH/camS;
+  buildPlanes();
+  if (ready) buildBg();
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 150));
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+
+// ---------- state ----------
+let state = 'closed'; // closed | opening | play | over | won
+let openT = 0, time = 0, shake = 0, banner = null, overT = 0;
+let hero, boss, bullets, parts, texts, stats, laser, garlics, light, slowT = 0, pickups = [];
+const keys = {};
+let mouse = { x: W/2, y: 400, active:false, down:false };
+let wardBtn = false, stickV = { x: 0, y: 0 }, stickId = null;
+const queued = { roll: false, lantern: false, garlic: false };   // one-shot button presses
+const bot = { on: false, mx: 0, my: 0, ward: false, restart: 0, used: false };   // used: the computer played any part of this run
+const isTouch = () => document.body.classList.contains('touch');
+if (window.matchMedia && matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch');
+
+function reset(){
+  const maxHp = 100;
+  hero = { x: 180, y: 490, hp: maxHp, maxHp, inv: 0, st: 100, lock: 0, ward: false, wardAge: 9, aim: -Math.PI/2, goo: false,
+           camp: { x: 180, y: 490, t: 0, cd: 0 }, roll: null, rollCd: 0, lastDir: { x: 0, y: -1 },
+           lantern: twist().lantern || 0, chain: 0, garlic: twist().garlic || GARLIC_PER_PHASE, trail: [],
+           oil: 100, slowT: 0, vx: 0, vy: 0, ivx: 0, ivy: 0, bandT: 0, shatterT: 0,
+           garlicT: 0, aura: 0, shards: 0, lit: false, light: LIGHT_START };
+  const hp0 = DAILY.phase.hp;
+  boss = { x: W/2, y: 150, vx: 0, hitT: 0, phase: 0, hp: hp0, max: hp0, flash: 0, ai: 0, atk: null, gap: 1.2,
+           open: 0, mt: 0, blockT: 0, fury: false };
+  bullets = []; parts = []; texts = []; laser = null; time = 0; endKind = null; defKind = null; endFx = []; banner = null; garlics = []; light = null; slowT = 0; pickups = [];
+  queued.roll = queued.lantern = queued.garlic = false;
+  for (const p of PILLARS){ p.max = twist().pillarHp || 25; p.hp = p.max; p.hitT = 0; p.fallen = null; }
+  CAMP_WARN = 1.4*(twist().campMul || 1); CAMP_ARM = 0.8*(twist().campMul || 1);
+  stats = { parries: 0, perfects: 0, hits: 0, grazes: 0, dodges: 0, lanterns: 0, triples: 0, garlic: 0, kicks: 0, blocked: 0, openHits: 0, cause: '', shatters: 0, shards: 0, pins: 0, everLit: false };
+}
+
+// ---------- bullets ----------
+function fire(x,y,ang,spd,kind,extra){
+  spd *= (twist().speedMul || 1) * DIFF.shot;
+  if (hero && hero.lit) spd *= LIT_AGGRO;
+  const b = { x, y, vx: Math.cos(ang)*spd, vy: Math.sin(ang)*spd, r: kind==='shadow'?5.5:5, kind, own:'boss', t:0 };
+  if (extra) Object.assign(b, extra);
+  bullets.push(b); return b;
+}
+const toHero = () => Math.atan2(hero.y - boss.y, hero.x - boss.x);
+function fireV(x, y, vx, vy, kind, extra){ return fire(x, y, Math.atan2(vy, vx), Math.hypot(vx, vy), kind, extra); }
+// an expanding square grid: each dot drifts down and away from the centre, so the lattice opens up as it falls
+function grid(n, gap, spread, down){
+  const h = (n-1)/2;
+  for (let gx = 0; gx < n; gx++) for (let gy = 0; gy < n; gy++){
+    const ox = gx - h, oy = gy - h; if (!ox && !oy) continue;
+    fireV(boss.x + ox*gap, boss.y + oy*gap, ox*spread, down + oy*spread, 'blood');
+  }
+}
+const wrap = a => { while (a > Math.PI) a -= 2*Math.PI; while (a < -Math.PI) a += 2*Math.PI; return a; };
+function every(a,k,iv,dt,fn){ a[k] = (a[k] ?? 0) - dt; while (a[k] <= 0) { a[k] += iv; fn(); } }
+// gameplay dice: seeded from the day, so everyone (and every retry) faces the same fight
+let grng = Math.random;
+function seedFight(){ grng = DAILY ? mulberry32((DAILY.seed * 2654435761 >>> 0) ^ 0x5EED) : Math.random; }
+// rings are fired as an arc that covers the floor, not a full circle (most of a circle used to fly into the walls).
+// n is the old full-circle count; the arc gets about 60% of it. off staggers the arc so each volley's gaps move.
+const ARC_L = 0.66, ARC_R = 2.48;   // radians from Dracula: just past the floor's left and right edges
+function ring(n, spd, off, kindFn, gap){
+  const m = Math.max(6, Math.round(n*0.6)), step = (ARC_R - ARC_L)/(m - 1);
+  const phase = (((off/(Math.PI*2))*m) % 1 + 1) % 1 * step;
+  // gap: leave a doorway of missing purple shots that lands over the floor near Wren
+  let doorAng = null;
+  if (gap){
+    const tx = Math.max(TILES.x0 + 30, Math.min(TILES.x1 - 30, hero.x + (grng()*2 - 1)*130)), ty = Math.max(TILES.y0 + 20, hero.y);
+    // a purple shot flies straight to y 268, then its angle from straight down is multiplied by 1.7 (see the bullet loop)
+    const landX = a0 => { const y1 = Math.max(boss.y, 268), x1 = boss.x + (y1 - boss.y)/Math.tan(a0); const a1 = Math.PI/2 + (a0 - Math.PI/2)*1.7; return x1 + (ty - y1)/Math.tan(a1); };
+    let best = Infinity;
+    for (let k = -60; k <= 60; k++){ const a0 = Math.PI/2 + k*0.012, e = Math.abs(landX(a0) - tx); if (e < best){ best = e; doorAng = a0; } }
+  }
+  for (let i = 0; i < m; i++){
+    const ang = ARC_L - step/2 + phase + i*step;
+    const kind = kindFn ? kindFn(i) : 'blood';
+    if (doorAng !== null && kind === 'shadow' && Math.abs(ang - doorAng) < step*gap*1.05) continue;
+    fire(boss.x, boss.y, ang, spd, kind);
+  }
+}
+
+const ATK = {};   // filled by buildDaily with the day's four patterns
+
+// ---------- daily level: one new fight a day, generated from the date ----------
+let DAILY = null;
+const phases = () => [DAILY.phase];
+const curLook = () => DAILY ? DAILY.phase.look : 0;
+const twist = () => DAILY ? DAILY.twist : {};
+function mulberry32(a){ return function(){ a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const DAILY_EPOCH = Date.UTC(2026, 9, 25); // day #1
+const TWISTS = [
+  { name: 'Swift night',      desc: 'Every shot flies 15% faster.',                speedMul: 1.15 },
+  { name: 'Blood moon',       desc: 'More red shots, and Dracula has 20% more health.', hpMul: 1.2, bloodBias: 0.3 },
+  { name: 'Garlic shortage',  desc: 'Only one garlic bulb.',                       garlic: 1 },
+  { name: 'Brittle pillars',  desc: 'Pillars crumble after 12 shots.',             pillarHp: 12 },
+  { name: 'Lit lantern',      desc: 'The lantern starts full.',                    lantern: 100 },
+  { name: 'Restless',         desc: 'The camping mark comes a third sooner.',      campMul: 0.68 },
+  { name: 'Thin shadows',     desc: 'Fewer purple shots, but Dracula has 15% more health.', hpMul: 1.15, bloodBias: 0.45 },
+];
+const DAILY_ADJ = ['Weeping','Crimson','Hollow','Velvet','Moonless','Gilded','Howling','Silent','Withered','Thirteenth','Bleeding','Shuttered','Drowned','Gentle','Bitter'];
+const DAILY_NOUN = ['Chandelier','Organ','Waltz','Cellar','Choir','Belfry','Mirror','Feast','Lullaby','Ballroom','Candle','Hourglass','Coffin','Tapestry','Bell'];
+// each family takes the day's random numbers and returns a pattern; live details (doorway spots, bat drop points) stay random
+const FAMILIES = {
+  rings(r){ const n = r.pick([14,16,18,20]), spd = r.rr(70,95), iv = r.rr(.6,.85), rot = r.rr(.1,.3);
+    const mix = r.rng() < r.bias + 0.4 ? 'blood' : r.pick(['alt','third']);
+    const kf = mix === 'blood' ? null : mix === 'alt' ? (i => i%2 ? 'shadow' : 'blood') : (i => i%3 === 0 ? 'shadow' : 'blood');
+    return { label: mix === 'blood' ? 'Blood rings' : 'Split rings', dur: r.rr(3,3.8),
+      step(a,dt){ every(a,'e',iv,dt,()=>{ a.o=(a.o||0)+rot; ring(n, spd, a.o, kf || undefined, kf ? 1 : 0); }); } }; },
+  spiral(r){ const arms = r.pick([2,2,3]), iv = r.rr(.07,.1), stp = r.rr(.22,.38)*(r.rng()<.5?-1:1), spd = r.rr(85,105), sh = r.rng() > r.bias + 0.45;
+    return { label: arms === 3 ? 'Triple spiral' : 'Twin spiral', dur: r.rr(3.2,4),
+      step(a,dt){ every(a,'e',iv,dt,()=>{ a.g=(a.g||0)+stp; a.n=(a.n||0)+1; for (let k=0;k<arms;k++){ const s = sh && k===0; if (s && a.n%2) continue; fire(boss.x,boss.y,a.g+k*Math.PI*2/arms,spd,s?'shadow':'blood'); } }); } }; },
+  fan(r){ const c = r.pick([3,4,5,6]), spread = r.rr(.14,.24), spd = r.rr(110,155), iv = r.rr(.4,.65), edge = r.rng() > r.bias + 0.5;
+    return { label: 'Aimed fans', dur: r.rr(2.8,3.4),
+      step(a,dt){ every(a,'e',iv,dt,()=>{ const b = toHero(); for (let i=0;i<c;i++) fire(boss.x,boss.y,b+(i-(c-1)/2)*spread,spd,'blood');
+        if (edge) for (const s of [-1,1]) fire(boss.x,boss.y,b+s*(c/2+0.9)*spread,spd*0.9,'shadow'); }); } }; },
+  rain(r){ const iv = r.rr(.18,.28), spd = r.rr(70,92), wob = r.rr(30,80), purple = r.rng() > r.bias + 0.3;
+    return { label: 'Bat rain', dur: r.rr(3.8,4.4), look: 1,
+      step(a,dt){ every(a,'e',iv,dt,()=>{ fire(20+grng()*320, 40, Math.PI/2, spd, 'blood', { bat:true, r:6, wa: wob, wf: 3+grng()*2, wp: grng()*6 }); });
+        if (purple) every(a,'s',1.3,dt,()=>{ const b = toHero(); for (let i=-1;i<=1;i++) fire(boss.x,boss.y,b+i*.18,110,'shadow'); }); } }; },
+  beam(r){ const cyc = r.rr(1.3,1.6), rn = r.pick([12,14,16]);
+    return { label: 'Window beams', dur: cyc*3, look: 2,
+      step(a,dt){ const ci = Math.floor(a.t/cyc), c = a.t % cyc;
+        if (ci !== a.ci){ a.ci = ci; a.ang = toHero(); a.rung = false; }
+        if (c < .75) laser = { ang: a.ang, k: c/.75 };
+        else { laser = null; if (!a.rung){ a.rung = true; ring(rn, 70, grng()); }
+          if (c < 1.2) every(a,'e',.03,dt,()=> fire(boss.x,boss.y,a.ang,290,'shadow',{ r:6, beam:true })); } },
+      end(){ laser = null; } }; },
+  flower(r){ const arms = r.pick([3,4,5]), iv = r.rr(.08,.11), stp = r.rr(.14,.22), spd = r.rr(90,105), rn = r.pick([8,9,10]), riv = r.rr(.9,1.2), sh = r.rng() > r.bias*2;
+    return { label: 'Blood flower', dur: r.rr(3.5,4.2),
+      step(a,dt){ every(a,'e',iv,dt,()=>{ a.g=(a.g||0)+stp; for (let k=0;k<arms;k++) fire(boss.x,boss.y,a.g+k*Math.PI*2/arms,spd,'blood'); });
+        if (sh) every(a,'s',riv,dt,()=> ring(rn, 62, grng(), ()=> 'shadow', 1)); } }; },
+  wave(r){ const iv = r.rr(.1,.14), width = r.rr(.8,1.2), freq = r.rr(1.6,2.6), k = r.pick([2,3]), spd = r.rr(95,120), every_n = r.pick([4,5,6]);
+    return { label: 'Sweeping wave', dur: r.rr(3.2,4),
+      step(a,dt){ every(a,'e',iv,dt,()=>{ a.n=(a.n||0)+1; const base = Math.PI/2 + Math.sin(a.t*freq)*width;
+        for (let j=0;j<k;j++) fire(boss.x,boss.y,base+(j-(k-1)/2)*0.13,spd,(a.n%every_n===0 && j===0)?'shadow':'blood'); }); } }; },
+  cross(r){ const arms = r.pick([4,6]), iv = r.rr(.09,.12), stp = r.rr(.1,.16)*(r.rng()<.5?-1:1), spd = r.rr(85,100), skip = r.bias > 0 ? 3 : 2;
+    return { label: arms === 6 ? 'Six-arm cross' : 'Turning cross', dur: r.rr(3.6,4.2),
+      step(a,dt){ every(a,'e',iv,dt,()=>{ a.g=(a.g||0)+stp; a.n=(a.n||0)+1; for (let k=0;k<arms;k++){ const s = k%2===0; if (s && a.n%skip) continue; fire(boss.x,boss.y,a.g+k*Math.PI*2/arms,spd,s?'shadow':'blood'); } }); } }; },
+};
+function dayInfo(d = new Date()){
+  const y = d.getFullYear(), m = d.getMonth(), day = d.getDate();
+  return { seed: y*10000 + (m+1)*100 + day, num: Math.floor((Date.UTC(y, m, day) - DAILY_EPOCH)/86400000) + 1,
+           label: d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) };
+}
+function buildDaily(date){
+  const info = dayInfo(date);
+  const rng = mulberry32(info.seed * 2654435761 >>> 0);
+  const r = { rng, rr: (a,b) => a + rng()*(b-a), pick: arr => arr[Math.floor(rng()*arr.length)], bias: 0 };
+  const tw = r.pick(TWISTS); r.bias = tw.bloodBias || 0;
+  const fams = Object.keys(FAMILIES);
+  for (let i = fams.length-1; i > 0; i--){ const j = Math.floor(rng()*(i+1)); [fams[i], fams[j]] = [fams[j], fams[i]]; }
+  const chosen = fams.slice(0, 4), labels = [];
+  let look = 0;
+  chosen.forEach((f, i) => { const atk = FAMILIES[f](r); ATK['d'+i] = atk; labels.push(atk.label); if (atk.look) look = atk.look; });
+  const name = 'The ' + r.pick(DAILY_ADJ) + ' ' + r.pick(DAILY_NOUN);
+  DAILY = { ...info, name, twist: tw, labels,
+            phase: { name: 'Daily #' + info.num + ' · ' + name, hp: Math.round(270*DIFF.bossHp*(tw.hpMul || 1)), atks: chosen.map((_, i) => 'd'+i), sp: r.rr(.6, 1.0), look } };
+}
+buildDaily();
+
+// ---------- fx ----------
+function buzz(ms){ try { if (navigator.vibrate) navigator.vibrate(ms); } catch(e){} }
+function burst(x,y,col,n,sp){ for(let i=0;i<n;i++){ const a=Math.random()*7, s=(.3+Math.random())*sp; parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:.4+Math.random()*.3,max:.7,col}); } }
+function say(x,y,txt,col){ texts.push({x,y,txt,col,life:.9}); }
+
+// walking: the tiled floor is a rectangle in world units; Wren's feet sit 14 units below the hitbox
+const WALK = {};
+function buildWalk(){}
+const tileEdge = (x, y) => Math.min(x - TILES.x0, TILES.x1 - x, y - TILES.y0, TILES.y1 - y);
+function walkable(x, y){ return x >= TILES.x0 + 4 && x <= TILES.x1 - 4 && y >= TILES.y0 + 3 && y <= TILES.y1 - 2; }
+const onFloor = (x, y) => tileEdge(x, y) > 2;
+// checks the hitbox and the feet, which sit a little lower
+const standable = (x, y) => walkable(x, y);
+
+// a pillar blocks as a tall column while standing, or as a long low wall once kicked over
+function blockRect(p){
+  if (p.fallen){ const cx = (p.x0+p.x1)/2, cy = (p.y0+p.y1)/2 + 10; return { x0: cx-60, x1: cx+60, y0: cy-9, y1: cy+9 }; }
+  if (p.hp > 0) return p;
+  return null;
+}
+const inRect = (x, y, r, m = 0) => r && x > r.x0-m && x < r.x1+m && y > r.y0-m && y < r.y1+m;
+
+function kickPillar(p){
+  p.fallen = { t: SLAB_T, hp: SLAB_HP }; stats.kicks++;
+  hero.roll = null;
+  const cx = (p.x0+p.x1)/2, cy = (p.y0+p.y1)/2;
+  burst(cx, cy, '#8d8f86', 30, 160); shake = .35; buzz(40);
+  say(cx, p.y0 - 8, 'pillar toppled', '#ffffff');
+}
+
+function clampArena(px, py){
+  if (!standable(hero.x, hero.y)){
+    if (standable(hero.x, py)) hero.y = py;          // slide along the edge
+    else if (standable(px, hero.y)) hero.x = px;
+    else { hero.x = px; hero.y = py; }
+  }
+  for (const p of PILLARS){
+    // rolling into a standing pillar shoves it over
+    if (hero.roll && p.hp > 0 && !p.fallen && inRect(hero.x, hero.y, p, 8)) kickPillar(p);
+    const r = blockRect(p); if (!r) continue;
+    const m = 5, x0 = r.x0-m, x1 = r.x1+m, y0 = r.y0-m, y1 = r.y1+m;
+    if (hero.x > x0 && hero.x < x1 && hero.y > y0 && hero.y < y1){
+      const dl = hero.x-x0, dr = x1-hero.x, dt = hero.y-y0, db = y1-hero.y, mn = Math.min(dl, dr, dt, db);
+      if (mn === dl) hero.x = x0; else if (mn === dr) hero.x = x1; else if (mn === dt) hero.y = y0; else hero.y = y1;
+    }
+  }
+}
+
+// ---------- the six moves ----------
+function addLantern(n){
+  const was = hero.lantern; hero.lantern = Math.min(100, hero.lantern + n);
+  if (was < 100 && hero.lantern >= 100) say(hero.x, hero.y - 44, 'lantern lit', C.gold);
+}
+function tryRoll(mx, my){
+  if (hero.roll || hero.rollCd > 0) return;
+  let l = Math.hypot(mx, my), dx = mx, dy = my;
+  if (l < 0.1){ dx = hero.lastDir.x; dy = hero.lastDir.y; l = 1; }
+  hero.roll = { t: ROLL_T, dx: dx/l, dy: dy/l, dodged: false };
+  hero.rollCd = ROLL_CD + ROLL_T; hero.ward = false; hero.trail = [];
+}
+function hitRadius(b){
+  if (b.kind === 'shadow') return b.r*0.55 + 2;
+  return b.r + 2.5;
+}
+const rollSafe = () => hero.roll && (ROLL_T - hero.roll.t) < ROLL_IFRAME;
+function perfectDodge(){
+  hero.roll.dodged = true; slowT = SLOW_T; stats.dodges++; hero.inv = Math.max(hero.inv, 0.3);
+  addLantern(DODGE_GAIN); buzz(20);
+  say(hero.x, hero.y - 40, 'night step', '#f1e6ff');
+}
+// the lantern is a switch: on reveals everything but burns oil and makes Dracula 25% faster
+function toggleLantern(){
+  if (hero.lit){ hero.lit = false; hero.light = Math.min(hero.light, LIGHT_OFF_CAP); say(hero.x, hero.y - 40, 'lantern off', '#cfc6dd'); return; }
+  if (hero.oil < 10){ say(hero.x, hero.y - 40, 'no oil', '#ffffff'); return; }
+  hero.lit = true; stats.everLit = true;
+  if (hero.lantern >= 100){
+    // lit with a full charge from grazing: the flame flares and sweeps the room
+    hero.lantern = 0; stats.lanterns++;
+    light = { x: hero.x, y: hero.y - 6, r: 0 }; shake = .2; buzz(30);
+    say(hero.x, hero.y - 44, 'lantern burst', C.gold);
+  } else say(hero.x, hero.y - 40, 'lantern on', C.gold);
+}
+// how hard each kind of hit lands, out of 100 health
+function shotDamage(b){
+  if (b.snipe) return DIFF.snipe;          // camping punishment
+  if (b.beam) return DIFF.beam;            // window beam
+  if (b.kind === 'shadow') return DIFF.purple;
+  return DIFF.red;                         // a red shot or bat you failed to block
+}
+function hurtHero(cause, dmg = 10){
+  hero.hp = Math.max(0, hero.hp - dmg);
+  say(hero.x, hero.y - 50, '-' + dmg, dmg >= 25 ? '#ff6b7a' : '#ffb3a6');
+  if (hero.garlicT > 0){ hero.garlicT = 0; say(hero.x, hero.y - 50, 'garlic dropped', '#ffb3a6'); } stats.hits++; buzz(dmg >= 25 ? 110 : 55); hero.inv = 1.1; shake = dmg >= 25 ? .5 : .3; hero.chain = 0;
+  burst(hero.x, hero.y, C.blood, 18, 160);
+  for (const o of bullets) if (o.own === 'boss' && Math.hypot(o.x-hero.x, o.y-hero.y) < 55) o.dead = true;
+  bullets = bullets.filter(o => !o.dead);
+  if (hero.hp <= 0){ stats.cause = cause || ''; startDefeat(); return true; }
+  return false;
+}
+// garlic: Wren stands still and crushes a bulb for 0.4 s; finish it unhurt and a cloud turns red shots into heart shards
+function startGarlic(){
+  if (hero.garlic <= 0){ say(hero.x, hero.y - 40, 'no garlic left', '#ffffff'); return; }
+  if (hero.garlicT > 0 || hero.roll) return;
+  hero.garlic--; stats.garlic++;
+  hero.garlicT = GARLIC_CAST; hero.ward = false;
+}
+
+// ---------- input ----------
+function readInput(){
+  if (bot.on) return { mx: bot.mx, my: bot.my, ward: bot.ward };
+  let mx = (keys.ArrowRight||keys.KeyD?1:0) - (keys.ArrowLeft||keys.KeyA?1:0);
+  let my = (keys.ArrowDown||keys.KeyS?1:0) - (keys.ArrowUp||keys.KeyW?1:0);
+  const l = Math.hypot(mx, my); if (l > 0){ mx /= l; my /= l; }
+  mx += stickV.x; my += stickV.y;
+  const m = Math.hypot(mx, my); if (m > 1){ mx /= m; my /= m; }
+  return { mx, my, ward: !!(keys.Space || keys.KeyJ || keys.KeyK || mouse.down || wardBtn) };
+}
+
+// ---------- update ----------
+function update(rdt){
+  if (state === 'opening'){ openT += rdt; if (openT >= 1){ state = 'play'; banner = { txt: phases()[0].name, t: 1.6 }; } return; }
+  if (state === 'over') overT = Math.min(1, overT + rdt*1.2);
+  // perfect dodge: the world slows, Wren doesn't
+  let dt = rdt;
+  if (slowT > 0){ slowT -= rdt; dt = rdt*SLOW_SCALE; }
+  updateFx(dt);
+  if (state === 'ending'){ endT += rdt; stepEnding(rdt); if (endT >= END_T) win(); return; }
+  if (state === 'defeat'){ defT += rdt; stepDefeat(rdt); if (defT >= DEF_T) lose(); return; }
+  if (state !== 'play') return;
+  time += dt;
+  if (banner){ banner.t -= dt; if (banner.t <= 0) banner = null; }
+
+  if (bot.on) botThink(rdt);
+  const inp = readInput();
+
+  // hero movement (real time, so Wren stays nimble in slow motion)
+  hero.goo = GOO.some(g => Math.hypot(hero.x-g.x, hero.y-g.y) < g.r);
+  const px = hero.x, py = hero.y;
+  if (hero.rollCd > 0) hero.rollCd -= rdt;
+  if (hero.garlicT > 0){ inp.mx = inp.my = 0; inp.ward = false; queued.roll = false; }   // rooted while crushing garlic
+  if (queued.roll){ queued.roll = false; if (hero.shatterT <= 0) tryRoll(inp.mx, inp.my); }
+  if (hero.roll){
+    const r = hero.roll; r.t -= rdt;
+    hero.x += r.dx*SPEED*ROLL_SPEED*rdt; hero.y += r.dy*SPEED*ROLL_SPEED*rdt;
+    hero.trail.push({ x: hero.x, y: hero.y }); if (hero.trail.length > 6) hero.trail.shift();
+    if (r.t <= 0) hero.roll = null;
+  } else {
+    hero.trail.length = 0;
+    let mult = 1; if (hero.ward) mult *= .65; if (hero.goo) mult *= .5; if (hero.slowT > 0) mult *= OIL_SLOW;
+    hero.ivx = inp.mx*SPEED*mult; hero.ivy = inp.my*SPEED*mult;   // the velocity Dracula reads to lead his shots
+    hero.x += hero.ivx*rdt; hero.y += hero.ivy*rdt;
+    const l = Math.hypot(inp.mx, inp.my); if (l > 0.2) hero.lastDir = { x: inp.mx/l, y: inp.my/l };
+  }
+  if (hero.roll){ hero.ivx = hero.roll.dx*SPEED*ROLL_SPEED; hero.ivy = hero.roll.dy*SPEED*ROLL_SPEED; }
+  clampArena(px, py);
+  hero.moving = Math.hypot(hero.x-px, hero.y-py) > 20*rdt;
+  const k = Math.min(1, rdt*10);
+  hero.vx += ((hero.x-px)/Math.max(rdt, 1e-4) - hero.vx)*k; hero.vy += ((hero.y-py)/Math.max(rdt, 1e-4) - hero.vy)*k;
+
+  // lantern: on, the light fills the room and burns oil; off, the light closes in (faster when standing still)
+  if (state === 'play'){
+    if (hero.slowT > 0) hero.slowT -= rdt;
+    if (hero.lit){
+      hero.light = Math.min(LIGHT_MAX, hero.light + 500*rdt);
+      hero.oil = Math.max(0, hero.oil - OIL_LIT*rdt);
+      if (hero.oil <= 0){ hero.lit = false; hero.light = Math.min(hero.light, LIGHT_OFF_CAP); hero.slowT = OIL_SLOW_T; say(hero.x, hero.y - 40, 'lantern guttered', '#ffb3a6'); }
+    } else {
+      hero.light = Math.max(LIGHT_MIN, hero.light - ((hero.moving || hero.roll) ? LIGHT_DIM_MOVE : LIGHT_DIM_STILL)*rdt);
+      if (hero.moving || hero.roll) hero.oil = Math.min(100, hero.oil + OIL_MOVE*rdt);
+    }
+    // garlic: the cast, then the cloud
+    if (hero.garlicT > 0){ hero.garlicT -= rdt; if (hero.garlicT <= 0){ hero.aura = AURA_T; hero.cloudShards = 0; hero.cloudN = 0; say(hero.x, hero.y - 44, 'garlic cloud', '#fff1cf'); } }
+    if (hero.aura > 0) hero.aura -= rdt;
+  }
+
+  // anti-camping: stay inside a small circle too long and Dracula marks the spot and snipes it
+  const camp = hero.camp;
+  if (Math.hypot(hero.x-camp.x, hero.y-camp.y) > 40){ camp.x = hero.x; camp.y = hero.y; camp.t = 0; camp.cd = 0; }
+  else if (state === 'play') camp.t += dt;
+  if (camp.t > CAMP_WARN + CAMP_ARM){
+    camp.cd -= dt;
+    if (camp.cd <= 0){
+      camp.cd = 0.85;
+      const a = toHero();
+      for (const o of [-0.07, 0, 0.07]) fire(boss.x, boss.y, a + o, 165, 'shadow', { beam: true, snipe: true });
+    }
+  }
+
+  hero.aim = (mouse.active && !bot.on) ? Math.atan2(mouse.y - hero.y, mouse.x - hero.x) : Math.atan2(boss.y - hero.y, boss.x - hero.x);
+
+  if (queued.lantern){ queued.lantern = false; if (state === 'play') toggleLantern(); }
+  if (queued.garlic){ queued.garlic = false; if (state === 'play') startGarlic(); }
+
+  // ward: a meter that only drains while held and only refills from perfect blocks
+  const want = inp.ward && !hero.roll && hero.garlicT <= 0;
+  if (hero.shatterT > 0) hero.shatterT -= rdt;
+  if (hero.lock > 0){ hero.lock -= rdt; if (hero.lock <= 0) hero.st = Math.max(hero.st, WARD_FLOOR); }
+  const can = hero.lock <= 0 && hero.st > 0;
+  if (want && can){
+    if (!hero.ward){ hero.ward = true; hero.wardAge = 0; }
+    hero.wardAge += rdt; hero.st -= WARD_DRAIN*rdt;
+    if (hero.st <= 0){ hero.st = 0; hero.ward = false; hero.lock = WARD_SPENT_LOCK; hero.chain = 0; burst(hero.x,hero.y-14,C.silver,14,90); say(hero.x,hero.y-30,'shield spent','#ffffff'); }
+  } else hero.ward = false;
+  if (hero.inv > 0) hero.inv -= rdt;
+
+  // heart shards drift to Wren; each heals 10
+  for (let i = pickups.length-1; i >= 0; i--){
+    const p = pickups[i]; p.life -= dt;
+    const dx = hero.x - p.x, dy = hero.y - 4 - p.y, d = Math.hypot(dx, dy) || 1;
+    const pull = d < 140 ? 260 : 60; p.x += dx/d*pull*dt; p.y += dy/d*pull*dt;
+    if (d < 14){
+      pickups.splice(i, 1); stats.shards++;
+      if (hero.hp < hero.maxHp){ const h = Math.min(DIFF.shard, hero.maxHp - hero.hp); hero.hp += h; say(hero.x, hero.y - 46, '+' + h, '#ff8fa0'); }
+      continue;
+    }
+    if (p.life <= 0) pickups.splice(i, 1);
+  }
+  // garlic wears off; fallen pillars crumble when their time is up
+  for (const g of garlics) g.t -= dt;
+  garlics = garlics.filter(g => g.t > 0);
+  for (const p of PILLARS){
+    if (!p.fallen) continue;
+    p.fallen.t -= dt;
+    if (p.fallen.t <= 0 || p.fallen.hp <= 0){ const r = blockRect(p); burst((r.x0+r.x1)/2, (r.y0+r.y1)/2, '#6f716a', 24, 120); p.fallen = null; p.hp = 0; }
+  }
+
+  // lantern burst: a ring of light sweeps out and turns every purple shot it touches red
+  if (light){
+    light.r += 950*rdt;
+    for (const b of bullets){
+      if (b.own === 'boss' && b.kind === 'shadow' && !b.lit && Math.hypot(b.x-light.x, b.y-light.y) < light.r){
+        b.lit = true; b.kind = 'blood'; b.r = 5; b.beam = false; b.snipe = false; b.fanned = true;
+        parts.push({ x: b.x, y: b.y, vx: 0, vy: -20, life: .35, max: .35, col: C.gold });
+      }
+    }
+    if (light.r > 900) light = null;
+  }
+
+  // boss
+  const ph = phases()[boss.phase];
+  const bx0 = boss.x;
+  const atOrgan = boss.atk && ATK[boss.atk.id].organ;
+  if (boss.open > 0) boss.open -= dt;
+  if (boss.blockT > 0) boss.blockT -= dt;
+  // he holds still at the organ and while his guard is open
+  if (!atOrgan && boss.open <= 0) boss.mt += dt;
+  const tx = atOrgan ? W/2 : W/2 + Math.sin(boss.mt*ph.sp)*80;
+  if (boss.open <= 0) boss.x += (tx - boss.x)*Math.min(1, dt*5);
+  boss.vx = (boss.x - bx0) / Math.max(dt, 1e-4);
+  if (boss.hitT > 0) boss.hitT -= dt;
+  boss.y = 110 + Math.sin(time*1.3)*6;   // on the throne dais
+  if (boss.flash > 0) boss.flash -= dt;
+  if (state === 'play'){
+    if (boss.atk){
+      // below 40% health Dracula fires everything 30% faster
+      const fury = boss.hp/boss.max < 0.4;
+      if (fury && !boss.fury){ boss.fury = true; say(boss.x, boss.y - 60, 'Dracula is furious', '#ff6b7a'); shake = .3; }
+      const adt = (fury ? dt*1.3 : dt) * (hero.lit ? LIT_AGGRO : 1);
+      const a = boss.atk; a.t += adt; ATK[a.id].step(a, adt);
+      if (a.t >= ATK[a.id].dur){ ATK[a.id].end && ATK[a.id].end(); boss.open = OPEN_DAILY; boss.atk = null; boss.gap = DIFF.gap; }
+    } else if (!banner) {
+      boss.gap -= dt;
+      if (boss.fury) boss.gap -= dt*0.5;
+      if (boss.gap <= 0){ const id = ph.atks[boss.ai % ph.atks.length]; boss.ai++; boss.atk = { id, t: 0 }; }
+    }
+  }
+
+  // bullets
+  for (let i = bullets.length-1; i >= 0; i--){
+    const b = bullets[i]; b.t += dt;
+    if (b.life !== undefined){ b.life -= dt; if (b.life <= 0){ bullets.splice(i,1); continue; } }
+    if (b.own === 'hero' && b.perfect){
+      const want = Math.atan2(boss.y-b.y, boss.x-b.x), cur = Math.atan2(b.vy,b.vx);
+      const d = wrap(want-cur);
+      const na = cur + Math.max(-7*dt, Math.min(7*dt, d)), s = Math.hypot(b.vx,b.vy);
+      b.vx = Math.cos(na)*s; b.vy = Math.sin(na)*s;
+    }
+    if (b.kind === 'shadow' && b.own === 'boss' && !b.beam && !b.fanned && b.y > 268 && b.vy > 0){
+      b.fanned = true;
+      const ang = Math.atan2(b.vy, b.vx), sp = Math.hypot(b.vx, b.vy);
+      // push each shot's angle away from straight down: neighbours end up ~1.7x further apart
+      const na = Math.max(0.12, Math.min(Math.PI - 0.12, Math.PI/2 + (ang - Math.PI/2)*1.7));
+      b.vx = Math.cos(na)*sp; b.vy = Math.sin(na)*sp;
+    }
+    // the garlic cloud dissolves red shots; every fifth leaves a heart shard
+    if (hero.aura > 0 && b.own === 'boss' && b.kind === 'blood' && Math.hypot(b.x-hero.x, b.y-hero.y) < AURA_R){
+      if (hero.cloudShards < SHARDS_PER_CLOUD && (hero.cloudN = (hero.cloudN || 0) + 1) % 5 === 0){ hero.cloudShards++; pickups.push({ x: b.x, y: b.y, life: 6 }); }
+      parts.push({ x: b.x, y: b.y, vx: 0, vy: -25, life: .3, max: .3, col: '#fff1cf' });
+      bullets.splice(i,1); continue;
+    }
+    if (b.own === 'boss' && (b.bat || b.kind === 'shadow') && !b.snipe && !b.beam){
+      for (const g of garlics){
+        const gx = b.x-g.x, gy = b.y-g.y, gd = Math.hypot(gx, gy);
+        if (gd < GARLIC_R && gd > 0.1){
+          const push = (1 - gd/GARLIC_R)*1500*dt;
+          b.vx += gx/gd*push; b.vy += gy/gd*push;
+          const sp = Math.hypot(b.vx, b.vy); if (sp > 200){ b.vx *= 200/sp; b.vy *= 200/sp; }
+          if (b.bat) b.wa = 0;
+        }
+      }
+    }
+    b.x += b.vx*dt; b.y += b.vy*dt;
+    if (b.bat && b.own === 'boss') b.x += Math.cos(b.t*b.wf + b.wp)*b.wa*dt;
+    if (b.x < FW.x0 || b.x > FW.x1 || b.y < FW.y0 || b.y > FW.y1){ bullets.splice(i,1); continue; }
+
+    if (b.own === 'boss'){
+      let blocked = false;
+      for (const p of PILLARS){
+        const r = blockRect(p);
+        if (inRect(b.x, b.y, r)){
+          blocked = true; p.hitT = .12;
+          if (p.fallen) p.fallen.hp--; else p.hp--;
+          burst(b.x, b.y, '#8d8f86', 4, 70);
+          if (!p.fallen && p.hp <= 0){ burst((p.x0+p.x1)/2, (p.y0+p.y1)/2, '#6f716a', 26, 120); say((p.x0+p.x1)/2, p.y0-6, 'pillar crumbled', '#ffffff'); shake = .25; }
+          break;
+        }
+      }
+      if (blocked){ bullets.splice(i,1); continue; }
+      const dx = b.x-hero.x, dy = b.y-hero.y, d = Math.hypot(dx,dy);
+      if (hero.ward && b.kind === 'blood' && d < 27 && d > 3){
+        const da = wrap(Math.atan2(dy,dx) - hero.aim);
+        if (Math.abs(da) < 1.15){
+          // during slow motion every block counts as perfect
+          const perfect = hero.wardAge < PERFECT_WIN || slowT > 0;
+          hero.oil = Math.min(100, hero.oil + (perfect ? OIL_PERFECT : OIL_REFLECT));
+          const s = Math.max(240, Math.hypot(b.vx,b.vy)*1.8) * (perfect?1.25:1);
+          b.own = 'hero'; b.perfect = perfect; b.dmg = perfect ? 8 : 3; b.bat = false;
+          b.vx = Math.cos(hero.aim)*s; b.vy = Math.sin(hero.aim)*s;
+          stats.parries++;
+          if (perfect){
+            buzz(12); stats.perfects++; hero.st = Math.min(100, hero.st + WARD_PERFECT); addLantern(PERFECT_GAIN); burst(b.x,b.y,C.gold,10,140);
+            hero.chain++;
+            if (hero.chain >= 3){
+              // third perfect in a row: the shot splits into three
+              hero.chain = 0; stats.triples++;
+              for (const o of [-0.32, 0.32]){
+                const a2 = hero.aim + o;
+                bullets.push({ x: b.x, y: b.y, vx: Math.cos(a2)*s, vy: Math.sin(a2)*s, r: 5, kind: 'blood', own: 'hero', perfect: true, dmg: 8, t: 0 });
+              }
+              say(hero.x, hero.y - 44, 'triple', C.gold); burst(b.x, b.y, C.gold, 18, 180);
+            } else say(hero.x, hero.y - 34, 'perfect', C.gold);
+          } else { hero.chain = 0; burst(b.x,b.y,C.silver,5,90); }
+          continue;
+        }
+      }
+      const hitR = hitRadius(b);
+      if (state === 'play' && d < hitR){
+        if (rollSafe()){
+          if (!hero.roll.dodged) perfectDodge();   // it went straight through Wren mid-roll
+        } else if (hero.inv <= 0){
+          bullets.splice(i,1);
+          if (hurtHero(b.snipe ? 'a camping snipe' : b.kind, shotDamage(b)*(hero.garlicT > 0 ? 2 : 1))){ stats.killer = b.snipe ? 'snipe' : b.kind; return; }   // double damage mid-garlic
+          break;
+        }
+      } else if (b.kind === 'shadow' && !b.grazed && hero.inv <= 0 && state === 'play' && d < b.r + 12){
+        // graze: a purple shot brushed past without hitting the core
+        b.grazed = true; stats.grazes++; addLantern(GRAZE_GAIN);
+        parts.push({ x: hero.x + dx*.5, y: hero.y + dy*.5, vx: 0, vy: -30, life: .3, max: .3, col: C.gold });
+      }
+    } else {
+      if (Math.abs(b.x-boss.x) < 46 && Math.abs(b.y-boss.y) < 36){
+        bullets.splice(i,1);
+        if (boss.open <= 0){
+          // outside his open window Dracula swats reflected shots away
+          stats.blocked++; burst(b.x, b.y, '#cfc6dd', 6, 110);
+          if (boss.blockT <= 0){ boss.blockT = .5; say(boss.x + (Math.random()*30-15), boss.y-44, 'blocked', '#cfc6dd'); }
+          continue;
+        }
+        const dmg = b.dmg*2; stats.openHits++;
+        boss.hp -= dmg; boss.flash = .08; boss.hitT = .22;
+        burst(b.x,b.y,b.perfect?C.gold:C.silver,8,120);
+        say(boss.x + (Math.random()*30-15), boss.y-44, '-'+dmg, b.perfect?C.gold:'#ffffff');
+        if (boss.hp <= 0){ finishFight(); return; }
+      }
+    }
+  }
+}
+
+function updateFx(dt){
+  for (let i=parts.length-1;i>=0;i--){ const p=parts[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.vx*=.92; p.vy*=.92; p.life-=dt; if(p.life<=0) parts.splice(i,1); }
+  for (let i=texts.length-1;i>=0;i--){ const t=texts[i]; t.y-=24*dt; t.life-=dt; if(t.life<=0) texts.splice(i,1); }
+  if (shake > 0) shake -= dt;
+}
+
+function clearField(){
+  for (const b of bullets) burst(b.x,b.y,b.kind==='shadow'?C.shadow:C.blood,1,60);
+  bullets = []; laser = null; boss.atk = null; garlics = []; light = null; slowT = 0; boss.open = 0; hero.aura = 0; hero.garlicT = 0;
+  burst(boss.x,boss.y,C.blood,40,220); shake = .5;
+}
+// ---------- endings: Dracula's last moments play out before the result screen, a different one each day ----------
+const END_T = 5.4, ENDINGS = ['dawn', 'bats', 'stone'];
+let endT = 0, endKind = null, endFx = [], endFlags = {};
+function finishFight(){
+  clearField();
+  scoreThisRun(true);            // score now, so leaving during the ending can't lose a win
+  state = 'ending'; endT = 0; endFx = []; endFlags = {};
+  endKind = ENDINGS[(DAILY.num % ENDINGS.length + ENDINGS.length) % ENDINGS.length];
+  boss.fury = false; boss.open = 0; boss.atk = null; hero.ward = false; laser = null;
+  shake = .4; buzz(90);
+}
+function dracBody(){ const D = proj(boss.x, boss.y), s = D.s; return { x: D.x, feet: D.y + 70*s, top: D.y - 80*s, mid: D.y - 5*s, s }; }
+function endPart(p){ endFx.push(Object.assign({ vx: 0, vy: 0, g: 0, life: 1, max: 1, size: 3, rot: 0, vr: 0, drag: 1 }, p)); }
+function stepEnding(dt){
+  const B = dracBody(), t = endT, R = (a, b) => a + Math.random()*(b - a);
+  if (endKind === 'dawn'){
+    if (t > .75 && !endFlags.shatter){
+      endFlags.shatter = true; shake = .55; buzz(60);
+      const W = proj(180, -179);
+      for (let i = 0; i < 70; i++){ const a = Math.random()*7, r = Math.random()*70; endPart({ type: 'shard', x: W.x + Math.cos(a)*r, y: W.y + Math.sin(a)*r*1.3, vx: Math.cos(a)*R(40, 220), vy: R(-140, 40), g: 520, life: R(1.2, 2.2), max: 2.2, size: R(3, 8), rot: Math.random()*7, vr: R(-9, 9), col: ['#ff3b4e','#ff7a59','#c21d3a','#ffd1a1'][i % 4] }); }
+    }
+    // fire climbs him from the feet up: ~70 tongues of flame a second
+    if (t > 1.1 && t < 3.7 && Math.random() < 70*dt){ const k = Math.min(1, (t - 1.1)/1.6), y = B.feet - R(0, (B.feet - B.top)*k); endPart({ type: 'flame', x: B.x + R(-28, 28)*B.s, y, vx: R(-10, 10), vy: R(-110, -50), life: R(.4, .8), max: .8, size: R(2.5, 5.5)*B.s }); }
+    if (t > 3.2 && t < 5.2 && Math.random() < 40*dt) endPart({ type: 'ash', x: B.x + R(-30, 30)*B.s, y: B.feet - R(0, 20), vx: R(-10, 10), vy: R(-50, -20), life: R(1.2, 2), max: 2, size: R(1.5, 3) });
+  } else if (endKind === 'bats'){
+    if (t > .7 && !endFlags.burst){
+      endFlags.burst = true; shake = .45; buzz(60);
+      for (let i = 0; i < 46; i++){ const a = R(-Math.PI*.95, -Math.PI*.05); endPart({ type: 'bat', x: B.x + R(-30, 30)*B.s, y: B.mid + R(-50, 50)*B.s, vx: Math.cos(a)*R(70, 230), vy: Math.sin(a)*R(60, 200) + R(-30, 30), g: -40, life: R(2.6, 4), max: 4, size: R(1.2, 2.2), rot: Math.random()*7 }); }
+      for (let i = 0; i < 18; i++) endPart({ type: 'smoke', x: B.x + R(-40, 40)*B.s, y: B.mid + R(-60, 60)*B.s, vx: R(-20, 20), vy: R(-30, 5), life: R(1.5, 2.5), max: 2.5, size: R(18, 34)*B.s });
+    }
+  } else if (endKind === 'stone'){
+    if (t > 2.7 && !endFlags.crumble){
+      endFlags.crumble = true; shake = .5; buzz(70);
+      for (let i = 0; i < 60; i++) endPart({ type: 'rock', x: B.x + R(-36, 36)*B.s, y: R(B.top + 10*B.s, B.feet - 10), vx: R(-70, 70), vy: R(-120, 10), g: 700, floor: B.feet + R(-4, 6), life: 9, max: 9, size: R(3, 9)*B.s, rot: Math.random()*7, vr: R(-6, 6), col: ['#8d8f86','#6f716a','#a3a49b','#5a5b55'][i % 4] });
+      for (let i = 0; i < 14; i++) endPart({ type: 'smoke', x: B.x + R(-40, 40)*B.s, y: B.feet - R(0, 40)*B.s, vx: R(-30, 30), vy: R(-25, -5), life: R(1.2, 2), max: 2, size: R(16, 30)*B.s, col: 'dust' });
+    }
+  }
+  for (let i = endFx.length - 1; i >= 0; i--){
+    const p = endFx[i];
+    p.vy += p.g*dt; p.x += p.vx*dt; p.y += p.vy*dt; p.rot += p.vr*dt;
+    if (p.floor !== undefined && p.y > p.floor){ p.y = p.floor; p.vy *= -.25; p.vx *= .6; p.vr *= .5; if (Math.abs(p.vy) < 20){ p.vy = 0; p.g = 0; p.vr = 0; } }
+    if (p.type === 'bat'){ p.vx *= 1 + dt*.5; p.vy *= 1 + dt*.3; }
+    p.life -= dt; if (p.life <= 0) endFx.splice(i, 1);
+  }
+}
+const tintCache = {};
+function tinted(key, col){
+  const id = key + col; if (tintCache[id]) return tintCache[id];
+  const im = IMG[key], c = document.createElement('canvas'); c.width = im.width; c.height = im.height;
+  const d = c.getContext('2d'); d.drawImage(im, 0, 0); d.globalCompositeOperation = 'source-atop'; d.fillStyle = col; d.fillRect(0, 0, c.width, c.height);
+  return (tintCache[id] = c);
+}
+// Dracula himself during an ending: tinted, shaking, fading
+function drawDraculaEnding(){
+  const x = boss.x, by = boss.y + 70, t = endT, key = IMG.drac_hit ? 'drac_hit' : 'drac_idle';
+  let alpha = 1, tint = null, tk = 0, jx = 0;
+  if (endKind === 'dawn'){ tint = 'rgba(255,186,96,1)'; tk = Math.min(1, Math.max(0, (t - .9)/1.4)); alpha = 1 - Math.min(1, Math.max(0, (t - 2.3)/1.3)); jx = t > .9 && t < 3.6 ? (Math.random() - .5)*3 : 0; }
+  else if (endKind === 'bats'){ alpha = t < .7 ? 1 : 0; jx = t < .7 ? (Math.random() - .5)*4*(t/.7) : 0; tint = 'rgba(123,53,240,1)'; tk = Math.min(1, t/.7)*.6; }
+  else if (endKind === 'stone'){ tint = 'rgba(128,126,132,1)'; tk = Math.min(1, Math.max(0, (t - .7)/1.3))*.92; alpha = t < 2.7 ? 1 : 0; }
+  if (alpha <= 0) return;
+  const im = IMG[key]; if (!im) return;
+  const w = im.width*DRAC_K, h = im.height*DRAC_K;
+  ctx.save(); ctx.globalAlpha = alpha; ctx.translate(x + jx, by);
+  ctx.drawImage(im, -w/2, -h, w, h);
+  if (tint && tk > 0){ ctx.globalAlpha = alpha*tk; ctx.drawImage(tinted(key, tint), -w/2, -h, w, h); }
+  if (endKind === 'stone' && t > 2.0){
+    // cracks spread before he crumbles
+    const k = Math.min(1, (t - 2.0)/.7); ctx.globalAlpha = alpha; ctx.strokeStyle = '#2b2a2e'; ctx.lineWidth = 1.6; ctx.beginPath();
+    for (let i = 0; i < Math.ceil(k*9); i++){ const sx = -w*.3 + w*.6*((i*.37 + .1)%1), sy = -h*.95 + h*.85*((i*.29 + .2)%1); ctx.moveTo(sx, sy); ctx.lineTo(sx + 7 - (i%3)*6, sy + 12); ctx.lineTo(sx + 2, sy + 24); }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+// the light and debris of an ending, in photo coordinates (drawn over the figures)
+function drawEnding(){
+  if (!endKind) return;
+  const t = state === 'won' ? END_T : endT, B = dracBody();
+  if (endKind === 'dawn'){
+    const W = proj(180, -179);
+    if (t < 1.1){ // the rose window cracks
+      const k = Math.min(1, t/.75); ctx.strokeStyle = `rgba(255,240,230,${.5 + k*.5})`; ctx.lineWidth = 1.6; ctx.beginPath();
+      for (let i = 0; i < 9; i++){ const a = i*.7 + .3, r = 20 + k*60; ctx.moveTo(W.x, W.y); ctx.lineTo(W.x + Math.cos(a)*r*.6 + 6, W.y + Math.sin(a)*r*.6); ctx.lineTo(W.x + Math.cos(a)*r, W.y + Math.sin(a)*r*1.2); }
+      ctx.stroke();
+    }
+    if (t > .7){ // a shaft of sunlight through the broken window
+      const a = Math.min(1, (t - .7)/.6)*(.55 + Math.sin(t*3)*.05);
+      const g = ctx.createLinearGradient(0, W.y, 0, B.feet + 40);
+      g.addColorStop(0, `rgba(255,236,190,${a})`); g.addColorStop(1, `rgba(255,190,110,${a*.35})`);
+      ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g; ctx.beginPath();
+      ctx.moveTo(W.x - 62, W.y); ctx.lineTo(W.x + 62, W.y); ctx.lineTo(B.x + 90*B.s, B.feet + 30); ctx.lineTo(B.x - 90*B.s, B.feet + 30); ctx.closePath(); ctx.fill();
+      const r = ctx.createRadialGradient(W.x, W.y, 4, W.x, W.y, 120); r.addColorStop(0, `rgba(255,250,235,${a})`); r.addColorStop(1, 'rgba(255,250,235,0)');
+      ctx.fillStyle = r; ctx.fillRect(W.x - 120, W.y - 120, 240, 240); ctx.restore();
+    }
+    if (t > 3.0){ // what's left of him
+      const k = Math.min(1, (t - 3.0)/1.2); ctx.fillStyle = `rgba(70,66,72,${.9*k})`;
+      ctx.beginPath(); ctx.ellipse(B.x, B.feet - 2*B.s, 46*B.s*k + 6, 16*B.s*k + 3, 0, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = `rgba(140,20,40,${.85*k})`; ctx.beginPath(); ctx.ellipse(B.x + 18*B.s, B.feet - 3*B.s, 14*B.s*k, 4*B.s*k + 1, -.2, 0, 7); ctx.fill();   // a scrap of red cape
+    }
+  }
+  if (endKind === 'stone' && t < 2.9){ // sunlight off Wren's mirror shield
+    const H = proj(hero.x, hero.y), hy = H.y - LIFT*H.s, a = Math.min(1, t/.5)*(t > 2.5 ? Math.max(0, (2.9 - t)/.4) : 1);
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
+    ctx.strokeStyle = `rgba(255,214,130,${.35*a})`; ctx.lineWidth = 18; ctx.beginPath(); ctx.moveTo(H.x, hy); ctx.lineTo(B.x, B.mid); ctx.stroke();
+    ctx.strokeStyle = `rgba(255,250,230,${.9*a})`; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(H.x, hy); ctx.lineTo(B.x, B.mid); ctx.stroke();
+    const r = ctx.createRadialGradient(H.x, hy, 2, H.x, hy, 40); r.addColorStop(0, `rgba(255,250,230,${a})`); r.addColorStop(1, 'rgba(255,250,230,0)'); ctx.fillStyle = r; ctx.fillRect(H.x - 40, hy - 40, 80, 80);
+    ctx.restore();
+  }
+  for (const p of endFx){
+    const a = Math.max(0, Math.min(1, p.life/p.max*1.5));
+    if (p.type === 'shard'){ ctx.save(); ctx.globalAlpha = a; ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = p.col; ctx.beginPath(); ctx.moveTo(0, -p.size); ctx.lineTo(p.size*.6, p.size*.5); ctx.lineTo(-p.size*.5, p.size*.3); ctx.closePath(); ctx.fill(); ctx.restore(); }
+    else if (p.type === 'flame'){ const k = p.life/p.max; ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = k*.7; ctx.fillStyle = k > .65 ? '#fff2b0' : k > .35 ? '#ffae42' : '#e0452c'; ctx.beginPath(); ctx.ellipse(p.x, p.y, p.size*(.35 + k*.5), p.size*(.6 + k*.9), 0, 0, 7); ctx.fill(); ctx.restore(); }
+    else if (p.type === 'ash'){ ctx.globalAlpha = a*.8; ctx.fillStyle = '#bdb6c4'; ctx.fillRect(p.x, p.y, p.size, p.size); }
+    else if (p.type === 'bat'){ ctx.globalAlpha = a; drawBat(p.x, p.y, p.size, endT*18 + p.rot, '#1d1226'); }
+    else if (p.type === 'smoke'){ const k = p.life/p.max; ctx.globalAlpha = k*.5; ctx.fillStyle = p.col === 'dust' ? '#a3a49b' : '#7b35f0'; ctx.beginPath(); ctx.arc(p.x, p.y, p.size*(1.6 - k*.6), 0, 7); ctx.fill(); }
+    else if (p.type === 'rock'){ ctx.save(); ctx.globalAlpha = 1; ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = p.col; ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size*.8); ctx.restore(); }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function fmt(t){ const m = Math.floor(t/60), s = Math.floor(t%60); return m + ':' + String(s).padStart(2,'0'); }
+// ---------- scoring, the ranked try and personal records ----------
+// Only the first run of each day ranks. It is marked as started the moment it begins, so closing the app,
+// restarting, going to the menu or handing over to the computer ends it with whatever it reached.
+const REC_KEY = 'cc-records-v1';
+const TITLES = [[0, 'Grave Digger'], [4000, 'Night Watch'], [12000, 'Lamplighter'], [30000, 'Vampire Hunter'], [60000, 'Dawnbringer']];
+const BADGES = { first: 'First try', flawless: 'Flawless', dark: 'In the dark', nogarlic: 'No garlic', swift: 'Swift', mirror: 'Mirror master' };
+let run = { ranked: false, done: false }, lastRes = null;   // this run: is it the day's ranked try, and has it been scored
+function loadRec(){ try { const r = JSON.parse(localStorage.getItem(REC_KEY) || 'null'); if (r && r.days) return r; } catch(e){} return { days: {} }; }
+function saveRec(r){ try { localStorage.setItem(REC_KEY, JSON.stringify(r)); } catch(e){} }
+function today(r){ const k = String(DAILY.seed); if (!r.days[k]) r.days[k] = { num: DAILY.num, ranked: null, runs: 0, practiceBest: 0 }; return r.days[k]; }
+function scoreRun(won){
+  const parts = [], cap = (v, m) => Math.min(m, Math.round(v));
+  const style = cap(cap(stats.perfects*4, 150) + cap(stats.triples*15, 120) + cap(stats.grazes*5, 100) + cap(stats.dodges*20, 80), 400);
+  if (won){
+    parts.push(['Beat Dracula', 1000]);
+    parts.push(['Speed · ' + fmt(time), cap(Math.max(0, Math.min(1, (240 - time)/180))*500, 500)]);
+    parts.push(['Health left · ' + Math.round(hero.hp), Math.round(Math.max(0, hero.hp)*4.5)]);
+    parts.push(['Style', style]);
+  } else {
+    const took = 1 - Math.max(0, boss.hp/boss.max);
+    parts.push(['Dracula\'s health taken · ' + Math.round(took*100) + '%', cap(took*600, 600)]);
+    parts.push(['Style (halved for a loss)', Math.round(style/2)]);
+  }
+  const total = parts.reduce((a, p) => a + p[1], 0);
+  const badges = [];
+  if (won){
+    if (stats.hits === 0) badges.push('flawless');
+    if (!stats.everLit) badges.push('dark');
+    if (stats.garlic === 0) badges.push('nogarlic');
+    if (time < 90) badges.push('swift');
+  }
+  if (stats.perfects >= 40) badges.push('mirror');
+  return { total, parts, badges, won, time: Math.round(time), hits: stats.hits, left: Math.max(0, boss.hp/boss.max) };
+}
+function renown(r){ return Object.values(r.days).reduce((a, d) => a + (d.ranked ? d.ranked.total : 0), 0); }
+function titleFor(n){ let t = TITLES[0][1]; for (const [min, name] of TITLES) if (n >= min) t = name; return t; }
+function streaks(r){
+  // consecutive days with a ranked try, and consecutive first-try wins, counting back from today (or yesterday)
+  const byNum = {}; for (const d of Object.values(r.days)) if (d.ranked) byNum[d.num] = d;
+  let n = byNum[DAILY.num] ? DAILY.num : DAILY.num - 1, played = 0, wins = 0, winsOpen = true;
+  while (byNum[n]){ played++; if (winsOpen && byNum[n].ranked.won) wins++; else winsOpen = false; n--; }
+  return { played, wins };
+}
+// marketplace hook: when the game ships to a store, connect this to its daily leaderboard
+// (Game Center recurring daily board, Google Play Games daily time span, or a Steam board named per day)
+const Leaderboard = {
+  submit(entry){ try { window.dispatchEvent(new CustomEvent('cryptcompact:score', { detail: entry })); } catch(e){} }
+};
+// close the books on this run
+function scoreThisRun(won, reason){
+  if (run.done) return null;
+  run.done = true;
+  if (bot.used && !run.ranked) return null;          // the computer's own runs never score
+  const res = scoreRun(won), r = loadRec(), d = today(r);
+  if (run.ranked){
+    if (bot.used){ res.total = 0; res.parts = [['Handed to the computer', 0]]; res.badges = []; reason = 'assisted'; }
+    if (won && !bot.used) res.badges.unshift('first');
+    d.ranked = { ...res, reason: reason || '' };
+    Leaderboard.submit({ board: 'daily-' + DAILY.seed, day: DAILY.num, score: res.total, won, time: res.time, badges: res.badges });
+  } else {
+    if (res.total > d.practiceBest) d.practiceBest = res.total;
+  }
+  saveRec(r); lastRes = res;
+  return res;
+}
+// the ranked try ends early if the player leaves it
+function abandonRanked(reason){
+  if (!run.ranked || run.done || !(state === 'play' || state === 'opening')) return;
+  scoreThisRun(false, reason);
+}
+function resultLines(res){
+  const ul = $('ovScore'); ul.innerHTML = '';
+  if (!res) return;
+  for (const [k, v] of res.parts){ const li = document.createElement('li'); const a = document.createElement('span'); a.textContent = k; const b = document.createElement('span'); b.textContent = v.toLocaleString(); li.append(a, b); ul.appendChild(li); }
+  const li = document.createElement('li'); li.className = 'total'; const a = document.createElement('span'); a.textContent = 'Score'; const b = document.createElement('span'); b.textContent = res.total.toLocaleString(); li.append(a, b); ul.appendChild(li);
+}
+function badgeList(el, keys, fresh){
+  el.innerHTML = '';
+  for (const k of keys){ const li = document.createElement('li'); li.className = 'badge' + (fresh ? ' new' : ''); li.textContent = BADGES[k] || k; el.appendChild(li); }
+}
+// ---------- defeat: Dracula's victory, a different one each day ----------
+const DEF_T = 4.2, DEFEATS = ['feast', 'bats', 'laugh'];
+let defT = 0, defKind = null;
+function startDefeat(){
+  scoreThisRun(false);           // score now, so leaving during the scene can't change the result
+  state = 'defeat'; defT = 0; endFx = []; endFlags = {};
+  defKind = DEFEATS[((DAILY.num + 1) % DEFEATS.length + DEFEATS.length) % DEFEATS.length];
+  boss.atk = null; laser = null; hero.ward = false; hero.roll = null; light = null;
+  for (const b of bullets) burst(b.x, b.y, b.kind === 'shadow' ? C.shadow : C.blood, 1, 50);
+  bullets = []; shake = .5; buzz(140); storm.next = .3; hero.inv = 0;
+}
+function stepDefeat(dt){
+  const B = dracBody(), H = proj(hero.x, hero.y), hy = H.y - LIFT*H.s, t = defT, R = (a, b) => a + Math.random()*(b - a);
+  if (defKind === 'feast' && t > .4 && t < 3.2 && Math.random() < 55*dt){
+    // crimson mist pulled out of Wren and into Dracula
+    const sx = H.x + R(-10, 10)*H.s, sy = hy + R(-14, 10)*H.s, dx = B.x - sx, dy = B.mid - sy, d = Math.hypot(dx, dy), sp = R(170, 240);
+    endPart({ type: 'mist', x: sx, y: sy, vx: dx/d*sp + R(-20, 20), vy: dy/d*sp + R(-30, 0), life: d/sp, max: d/sp, size: R(4, 8)*H.s });
+  }
+  if (defKind === 'bats' && !endFlags.orbit && t > .35){
+    endFlags.orbit = true;
+    for (let i = 0; i < 22; i++) endPart({ type: 'orbit', x: B.x, y: B.mid, a: i/22*Math.PI*2, r: R(95, 150)*B.s, sp: R(2.0, 3.0)*(i % 2 ? 1 : -1), life: 9, max: 9, size: R(.8, 1.25) });
+  }
+  if (defKind === 'bats' && t > .4 && Math.random() < 1.6*dt){ storm.next = 0; shake = Math.max(shake, .25); }
+  if (defKind === 'laugh' && t > .5 && t < 3.6 && (endFlags.ha || 0) < Math.floor((t - .5)/.42) + 1){
+    endFlags.ha = (endFlags.ha || 0) + 1;
+    endPart({ type: 'ha', x: B.x + R(-40, 40)*B.s, y: B.top + R(0, 20)*B.s, vx: R(-15, 15), vy: -45, life: 1.4, max: 1.4, size: (30 + Math.random()*14)*B.s });
+  }
+  for (let i = endFx.length - 1; i >= 0; i--){
+    const p = endFx[i];
+    if (p.type === 'orbit'){ p.a += p.sp*dt; const k = Math.min(1, defT/1.2); p.x = B.x + Math.cos(p.a)*p.r*k; p.y = B.mid + Math.sin(p.a)*p.r*.6*k - 30*B.s; }
+    else { p.x += p.vx*dt; p.y += p.vy*dt; }
+    p.life -= dt; if (p.life <= 0) endFx.splice(i, 1);
+  }
+}
+// Dracula triumphant
+function drawDraculaVictory(){
+  const t = defT, key = IMG.drac_cast ? 'drac_cast' : 'drac_idle', im = IMG[key]; if (!im) return;
+  const x = boss.x, by = boss.y + 70;
+  let rise = 0, sc = 1, jx = 0, red = 0;
+  if (defKind === 'feast'){ const k = Math.min(1, Math.max(0, (t - .4)/2.6)); sc = 1 + k*.12; red = k*.55; }
+  if (defKind === 'bats'){ rise = Math.min(1, t/1.2)*10; red = .25 + Math.sin(t*9)*.1; }
+  if (defKind === 'laugh'){ rise = Math.min(1, t/1.4)*22 + Math.abs(Math.sin(t*16))*3; jx = Math.sin(t*23)*1.5; red = .15; }
+  // a pulsing red aura
+  const g = ctx.createRadialGradient(x, boss.y, 10, x, boss.y, 110*sc);
+  g.addColorStop(0, `rgba(255,40,70,${.35 + red*.4})`); g.addColorStop(1, 'rgba(255,40,70,0)');
+  ctx.fillStyle = g; ctx.fillRect(x - 120, boss.y - 120, 240, 240);
+  const w = im.width*DRAC_K*sc, h = im.height*DRAC_K*sc;
+  ctx.save(); ctx.translate(x + jx, by - rise);
+  ctx.globalAlpha = .28; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(0, rise + 2, 34, 5, 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+  ctx.drawImage(im, -w/2, -h, w, h);
+  if (red > 0){ ctx.globalAlpha = red; ctx.drawImage(tinted(key, 'rgba(255,40,70,1)'), -w/2, -h, w, h); }
+  ctx.restore();
+}
+function drawDefeat(){
+  if (!(state === 'defeat' || (state === 'over' && defKind))) return;
+  for (const p of endFx){
+    const a = Math.max(0, Math.min(1, p.life/p.max*1.4));
+    if (p.type === 'mist'){ ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = .55*a; ctx.fillStyle = '#ff2b4a'; ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 7); ctx.fill(); ctx.restore(); }
+    else if (p.type === 'orbit'){ ctx.globalAlpha = 1; drawBat(p.x, p.y, p.size*1.6, defT*20 + p.a*3, '#1d1226'); }
+    else if (p.type === 'ha'){ ctx.globalAlpha = a; ctx.font = `${Math.round(p.size)}px "Pirata One", Georgia, serif`; ctx.textAlign = 'center'; ctx.fillStyle = '#1e0e3f'; ctx.fillText('HA', p.x + 2, p.y + 2); ctx.fillStyle = '#ff6b7a'; ctx.fillText('HA', p.x, p.y); }
+  }
+  ctx.globalAlpha = 1;
+}
+function lose(){
+  state = 'over'; overT = 0; bot.restart = 4;
+  const left = Math.max(0, boss.hp/boss.max), wasRanked = run.ranked && !bot.used;
+  const res = run.done ? lastRes : scoreThisRun(false);
+  showOverlay({ feast: 'Dracula feeds', bats: 'The night is his', laugh: 'He laughs as the gates close' }[defKind] || 'The gates slam shut', `${bot.on ? 'The computer left' : 'You left'} Dracula at ${Math.round(left*100)}% · ${stats.perfects} perfect, ${stats.grazes} grazes.`,
+    'Practice today\'s level', res, wasRanked);
+}
+function win(){
+  state = 'won'; bot.restart = 5;
+  const wasRanked = run.ranked && !bot.used;
+  const res = run.done ? lastRes : scoreThisRun(true);
+  showOverlay({ dawn: 'Dawn breaks', bats: 'He scatters into the night', stone: 'Turned to stone' }[endKind] || 'Dawn breaks', `${bot.on ? 'The computer beat Dracula in ' : 'Dracula falls in '}${fmt(time)} · ${stats.perfects} perfect, ${stats.grazes} grazes, ${stats.hits} hits taken.`,
+    'Practice today\'s level', res, wasRanked);
+}
+function dailyResultText(d){
+  if (!d || !d.ranked) return '';
+  const k = d.ranked;
+  if (k.reason === 'assisted') return 'handed to the computer, 0 points';
+  const how = k.won ? `cleared in ${fmt(k.time)}, ${k.hits} hit${k.hits === 1 ? '' : 's'}` : `Dracula left at ${Math.round(k.left*100)}%`;
+  return how + (k.reason === 'left' ? ' (left the run)' : '');
+}
+function shareText(){
+  const r = loadRec(), d = r.days[String(DAILY.seed)];
+  if (!d || !d.ranked) return `Crypt Compact daily #${DAILY.num} · ${DAILY.name} · not played yet`;
+  const b = d.ranked.badges.map(k => BADGES[k]).join(', ');
+  return `Crypt Compact daily #${DAILY.num} · ${DAILY.name} · ${d.ranked.total.toLocaleString()} points (ranked try) · ${dailyResultText(d)}${b ? ' · ' + b : ''}`;
+}
+
+// ---------- computer player ----------
+// Looks a third of a second ahead, scores 25 possible moves against where every shot will be,
+// and takes the safest one that also keeps it under Dracula and off its own camping spot.
+const BOT_DIRS = [[0,0]];
+for (let k = 0; k < 16; k++) BOT_DIRS.push([Math.cos(k*Math.PI/8), Math.sin(k*Math.PI/8)]);
+for (let k = 0; k < 8; k++) BOT_DIRS.push([Math.cos(k*Math.PI/4 + Math.PI/8)*.45, Math.sin(k*Math.PI/4 + Math.PI/8)*.45]);
+const BOT_T = [0.06, 0.14, 0.24, 0.36];
+const BOT_SLOP = 22;
+const BOT_REPLAN = 0.2;
+const BOT_MISS = 0.12;   // share of shots it simply doesn't notice in a crowded screen // seconds between movement decisions: like a person, it commits to a direction for a moment   // random noise in its judgement, so it plays like a person and can lose
+function botBlocked(x, y){ for (const p of PILLARS){ if (inRect(x, y, blockRect(p), 4)) return true; } return false; }
+function botThink(rdt){
+  // shield: raise it just before a red shot reaches the arc, so most blocks land as perfect
+  let wardNeed = false;
+  const near = [];
+  for (const b of bullets){
+    if (b.own !== 'boss') continue;
+    const dx = b.x - hero.x, dy = b.y - hero.y, d = Math.hypot(dx, dy);
+    if (b.botSeen === undefined) b.botSeen = Math.random() > BOT_MISS;
+    // with the lantern off it can't see purple shots outside its light either
+    if (d < 240 && b.botSeen && (hero.lit || b.kind !== 'shadow' || d < hero.light)) near.push(b);
+    if (b.kind === 'blood' && d < 70){
+      const sp = Math.hypot(b.vx, b.vy) || 1, closing = -(dx*b.vx + dy*b.vy)/(d*sp);
+      if (b.botT === undefined) b.botT = 0.05 + Math.random()*0.11;   // its reaction for this shot
+      if (closing > 0.5 && Math.abs(wrap(Math.atan2(dy, dx) - hero.aim)) < 1.0 && (d - 26)/sp < b.botT) wardNeed = true;
+    }
+  }
+  bot.ward = wardNeed && hero.st > 10 && hero.lock <= 0;
+
+  // specials are checked every frame
+  // roll through a shot it can't walk away from (often a perfect dodge)
+  if (hero.rollCd <= 0 && !hero.roll){
+    // a purple shot is about to pass right through Wren: roll through it for a night step
+    const incoming = near.some(b => b.kind === 'shadow' && Math.hypot(b.x + b.vx*0.07 - hero.x, b.y + b.vy*0.07 - hero.y) < hitRadius(b) + 4);
+    if (bot.danger > 650 || (incoming && Math.random() < 0.5)){ queued.roll = true; bot.ward = false; bot.danger = 0; }
+  }
+  // light the lantern when the floor is crowded with purple
+  // lantern: light it when the dark closes in (or for a burst), put it out to save oil and calm Dracula down
+  bot.lanCd = (bot.lanCd || 0) - rdt;
+  if (bot.lanCd <= 0){
+    if (!hero.lit && hero.oil > 35 && (hero.light < 110 || (hero.lantern >= 100 && near.filter(b => b.kind === 'shadow').length >= 4))){ queued.lantern = true; bot.lanCd = 2.5; }
+    else if (hero.lit && (hero.oil < 18 || (hero.light >= LIGHT_MAX - 1 && hero.lantern < 100 && hero.oil < 70))){ queued.lantern = true; bot.lanCd = 2.5; }
+  }
+  // garlic when a thick crowd of red closes in and nothing deadly is near
+  if (hero.garlic > 0 && hero.garlicT <= 0 && hero.aura <= 0 && !hero.roll
+      && near.filter(b => b.kind === 'blood' && Math.hypot(b.x-hero.x, b.y-hero.y) < 80).length >= 6) queued.garlic = true;
+  // topple a nearby pillar while a beam is being aimed
+  if (laser && laser.k > 0.35 && hero.rollCd <= 0 && !hero.roll){
+    for (const p of PILLARS){
+      if (p.hp <= 0 || p.fallen) continue;
+      const px = (p.x0+p.x1)/2, py = p.y1, d = Math.hypot(px - hero.x, py - hero.y);
+      if (d < 70){ bot.mx = (px - hero.x)/d; bot.my = (py - hero.y)/d; queued.roll = true; break; }
+    }
+  }
+
+  bot.plan = (bot.plan || 0) - rdt;
+  if (bot.plan > 0) return;
+  bot.plan = BOT_REPLAN;
+  const toBoss = Math.atan2(boss.y - hero.y, boss.x - hero.x);
+  const canBlock = hero.st > 25 && hero.lock <= 0;
+  let best = BOT_DIRS[0], bestScore = Infinity;
+  for (const [cx, cy] of BOT_DIRS){
+    let score = 0;
+    const mult = (bot.ward ? .65 : 1) * (hero.goo ? .5 : 1);
+    for (const t of BOT_T){
+      const x = hero.x + cx*SPEED*mult*t, y = hero.y + cy*SPEED*mult*t;
+      if (!standable(x, y) || botBlocked(x, y)){ score += 300; continue; }
+      for (const b of near){
+        let bx = b.x + b.vx*t, by = b.y + b.vy*t;
+        const d = Math.hypot(bx - x, by - y);
+        const hitR = hitRadius(b);
+        let w = 1;
+        if (b.kind === 'blood' && canBlock && Math.abs(wrap(Math.atan2(by - y, bx - x) - toBoss)) < 0.9) w = 0.12; // it'll be blocked
+        if (d < hitR + 6) score += 1000*w/(1 + t*2);
+        else if (b.kind === 'shadow' && !b.grazed && d < b.r + 11 && t < 0.2) score -= 30;   // go looking for grazes
+        else if (d < 34) score += w*(34 - d)*1.6/(1 + t*2);
+      }
+    }
+    const ex = hero.x + cx*45, ey = hero.y + cy*45;
+    score += Math.hypot(ex - Math.max(90, Math.min(270, boss.x)), ey - 478)*0.12;   // stay roughly under Dracula
+    if (hero.camp.t > 0.8 && Math.hypot(ex - hero.camp.x, ey - hero.camp.y) < 44) score += 50 + hero.camp.t*60;
+    if (GOO.some(g => Math.hypot(ex - g.x, ey - g.y) < g.r)) score += 20;
+    if (!hero.moving && hero.oil < 35 && cx === 0 && cy === 0) score += 40;   // keep the oil up
+    for (const p of pickups) if (Math.hypot(ex - p.x, ey - p.y) < 30) score -= 6;
+    score += Math.random()*BOT_SLOP;
+    if (score < bestScore){ bestScore = score; best = [cx, cy]; }
+  }
+  bot.mx = best[0]; bot.my = best[1]; bot.danger = bestScore;
+
+}
+
+// ---------- drawing ----------
+function drawBat(x,y,s,flap,col){
+  ctx.save(); ctx.translate(x,y); ctx.scale(s,s); ctx.fillStyle = col;
+  const f = Math.sin(flap)*3;
+  ctx.beginPath(); ctx.moveTo(0,-2);
+  ctx.quadraticCurveTo(-6,-6-f,-12,-2-f); ctx.lineTo(-9,1); ctx.lineTo(-6,-1); ctx.lineTo(-3,2); ctx.lineTo(0,1);
+  ctx.lineTo(3,2); ctx.lineTo(6,-1); ctx.lineTo(9,1); ctx.lineTo(12,-2-f); ctx.quadraticCurveTo(6,-6-f,0,-2);
+  ctx.fill(); ctx.beginPath(); ctx.arc(0,0,2.4,0,7); ctx.fill(); ctx.restore();
+}
+
+function white(key){
+  if (whiteCache[key]) return whiteCache[key];
+  const im = IMG[key], c = document.createElement('canvas'); c.width = im.width; c.height = im.height;
+  const d = c.getContext('2d'); d.drawImage(im, 0, 0);
+  d.globalCompositeOperation = 'source-atop'; d.fillStyle = 'rgba(255,255,255,.75)'; d.fillRect(0, 0, c.width, c.height);
+  return (whiteCache[key] = c);
+}
+// draws a sprite with its bottom-center at (x, by)
+function sprite(key, k, x, by, flip, flash){
+  if (!IMG[key]) return;
+  const im = flash ? white(key) : IMG[key];
+  const w = im.width*k, h = im.height*k;
+  ctx.save(); ctx.translate(x, by); if (flip) ctx.scale(-1, 1);
+  ctx.drawImage(im, -w/2, -h, w, h); ctx.restore();
+}
+
+function drawDracula(){
+  if (state === 'ending'){ drawDraculaEnding(); return; }
+  if (state === 'defeat' || state === 'over'){ drawDraculaVictory(); return; }
+  const x = boss.x, y = boss.y, ph = curLook();
+  if (ph === 2 || boss.fury){
+    const g = ctx.createRadialGradient(x,y,6,x,y,80); g.addColorStop(0,'rgba(255,40,60,.45)'); g.addColorStop(1,'rgba(255,40,60,0)');
+    ctx.fillStyle = g; ctx.fillRect(x-80,y-80,160,160);
+  }
+  const bob = Math.sin(time*2.2)*1.5;
+  const halo = ctx.createRadialGradient(x, y, 10, x, y, 85);
+  halo.addColorStop(0, 'rgba(255,235,240,.55)'); halo.addColorStop(1, 'rgba(255,235,240,0)');
+  ctx.fillStyle = halo; ctx.fillRect(x-85, y-85, 170, 170);
+  const by = y + 70;
+  ctx.globalAlpha = .28; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(x, by+2, 34, 5, 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+  let pose = 'drac_idle', flip = false;
+  if (boss.hitT > 0) pose = 'drac_hit';
+  else if (boss.atk) pose = 'drac_cast';
+  else if (Math.abs(boss.vx) > 40){ pose = 'drac_walk'; flip = boss.vx < 0; }
+  sprite(pose, DRAC_K, x, by + bob, flip, boss.flash > 0);
+  if (boss.open > 0){
+    // his guard is down: reflected shots land, for double damage
+    const p = .5 + Math.sin(time*12)*.5;
+    ctx.strokeStyle = `rgba(242,184,75,${.55 + p*.4})`; ctx.lineWidth = 3; ctx.setLineDash([6,5]); ctx.lineDashOffset = -time*40;
+    ctx.beginPath(); ctx.ellipse(x, y + 4, 54, 44, 0, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+    ctx.font = '700 13px "JetBrains Mono", monospace'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#1e0e3f'; ctx.fillText('OPEN', x + 1, y - 51); ctx.fillStyle = C.gold; ctx.fillText('OPEN', x, y - 52);
+  }
+  if (ph === 1) for (let i=0;i<5;i++){ const a = time*1.6 + i*Math.PI*2/5; drawBat(x+Math.cos(a)*84, y+Math.sin(a)*34, 1, time*14+i, '#1d1226'); }
+}
+
+function wrenPose(){
+  const step = Math.floor(time*6) % 2;
+  // aiming up the board means facing Dracula, so we see Wren from behind
+  const back = Math.sin(hero.aim) < 0;
+  let pose, flip;
+  if (back){
+    if (hero.inv > 1.0) pose = 'wrenb_hit';
+    else if ((hero.moving || hero.roll) && !hero.ward) pose = step ? 'wrenb_walk' : 'wrenb_idle';
+    else pose = 'wrenb_idle';
+    flip = pose === 'wrenb_hit' ? Math.cos(hero.aim) > 0.2 : Math.cos(hero.aim) < -0.2;
+  } else {
+    if (hero.inv > 1.0) pose = 'wren_hit';
+    else if (hero.ward) pose = 'wren_guard';
+    else if (hero.moving || hero.roll) pose = step ? 'wren_walk' : 'wren_idle';
+    else pose = 'wren_idle';
+    flip = pose === 'wren_hit' ? Math.cos(hero.aim) < -0.2 : Math.cos(hero.aim) > 0.2;
+  }
+  return [pose, flip];
+}
+
+function drawHero(){
+  const { x, y } = hero;
+  const blink = hero.inv > 0 && Math.floor(hero.inv*14)%2;
+  if (hero.goo){ ctx.strokeStyle = 'rgba(156,240,70,.8)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(x, y+18, 14 + Math.sin(time*10)*2, 5, 0, 0, 7); ctx.stroke(); }
+  const by = y + 24;
+  const [pose, flip] = wrenPose();
+  // roll: ghost trail and a tumble
+  if (hero.roll){
+    hero.trail.forEach((p, i) => { ctx.globalAlpha = 0.08 + i*0.05; sprite(pose, WREN_K, p.x, p.y + 24, flip, true); });
+    ctx.globalAlpha = 1;
+  }
+  if (!blink){
+    ctx.globalAlpha = .3; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(x, by-1, 15, 4, 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+    ctx.save();
+    if (hero.roll){
+      const spin = (1 - hero.roll.t/ROLL_T) * Math.PI*2 * (hero.roll.dx < 0 ? -1 : 1);
+      ctx.translate(x, y + 6); ctx.rotate(spin); ctx.translate(-x, -(y + 6));
+    }
+    sprite(pose, WREN_K, x, by, flip, false);
+    ctx.restore();
+  }
+  // shield arc
+  const a = hero.aim;
+  ctx.save(); ctx.lineCap = 'round';
+  if (hero.ward){
+    const perfect = hero.wardAge < PERFECT_WIN || slowT > 0;
+    ctx.strokeStyle = perfect ? C.gold : '#ffffff';
+    ctx.globalAlpha = .35; ctx.lineWidth = 11; ctx.beginPath(); ctx.arc(x,y,23,a-1.05,a+1.05); ctx.stroke();
+    ctx.globalAlpha = 1; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.arc(x,y,23,a-1.05,a+1.05); ctx.stroke();
+    ctx.strokeStyle = 'rgba(20,10,30,.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x,y,25.5,a-1.05,a+1.05); ctx.stroke();
+  } else if (!hero.roll){
+    ctx.strokeStyle = hero.lock > 0 ? 'rgba(90,80,90,.8)' : 'rgba(255,255,255,.55)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x,y,18,a-.45,a+.45); ctx.stroke();
+  }
+  ctx.restore();
+  // perfect-block chain pips
+  if (hero.lit){
+    const g = ctx.createRadialGradient(x + 8, y + 4, 2, x + 8, y + 4, 40);
+    g.addColorStop(0, 'rgba(255,214,130,.45)'); g.addColorStop(1, 'rgba(255,214,130,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x + 8, y + 4, 40, 0, 7); ctx.fill();
+  }
+  if (hero.chain > 0){
+    for (let i = 0; i < 3; i++){
+      ctx.beginPath(); ctx.arc(x - 8 + i*8, y - 46, 2.6, 0, 7);
+      ctx.fillStyle = i < hero.chain ? C.gold : 'rgba(30,14,63,.55)'; ctx.fill();
+      ctx.strokeStyle = '#1e0e3f'; ctx.lineWidth = 1; ctx.stroke();
+    }
+  }
+  // hitbox
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#120b14'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.arc(x,y,2.6,0,7); ctx.fill(); ctx.stroke();
+}
+
+function drawAura(){
+  if (hero.garlicT > 0){
+    // crushing the bulb: a ring that fills over the 0.4 s cast
+    const k = 1 - hero.garlicT/GARLIC_CAST;
+    ctx.strokeStyle = 'rgba(30,14,63,.6)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(hero.x, hero.y - 2, 26, 0, 7); ctx.stroke();
+    ctx.strokeStyle = '#fff1cf'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(hero.x, hero.y - 2, 26, -Math.PI/2, -Math.PI/2 + k*Math.PI*2); ctx.stroke();
+    ctx.fillStyle = '#efe6d2'; ctx.beginPath(); ctx.ellipse(hero.x + 10, hero.y - 6, 5, 4.5, 0, 0, 7); ctx.fill();
+  }
+  if (hero.aura > 0){
+    const f = Math.min(1, hero.aura*2), p = .5 + Math.sin(time*8)*.5;
+    const g = ctx.createRadialGradient(hero.x, hero.y, 6, hero.x, hero.y, AURA_R);
+    g.addColorStop(0, `rgba(255,246,220,${.18*f})`); g.addColorStop(.8, `rgba(255,246,220,${.32*f})`); g.addColorStop(1, 'rgba(255,246,220,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(hero.x, hero.y, AURA_R, 0, 7); ctx.fill();
+    ctx.strokeStyle = `rgba(255,246,220,${(.4 + p*.3)*f})`; ctx.lineWidth = 1.5; ctx.setLineDash([3,5]);
+    ctx.beginPath(); ctx.arc(hero.x, hero.y, AURA_R, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+  }
+}
+function drawPickups(){
+  for (const p of pickups){
+    const a = Math.min(1, p.life), s = 4 + Math.sin(time*9 + p.x)*0.6;
+    ctx.globalAlpha = a; ctx.fillStyle = '#ff8fa0'; ctx.strokeStyle = '#7a1f40'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(p.x, p.y - s); ctx.lineTo(p.x + s*.8, p.y); ctx.lineTo(p.x, p.y + s); ctx.lineTo(p.x - s*.8, p.y); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+// shots float at Wren's belt height (LIFT, in upright units), so a shot level with his hitbox is one that can hit him
+const LIFT = 24;
+function liftedAt(x, y, fn){ const P = proj(x, y); ctx.save(); ctx.translate(P.x, P.y - LIFT*P.s); ctx.scale(P.s, P.s); ctx.translate(-x, -y); fn(); ctx.restore(); }
+function drawLifted(){
+  if (laser){
+    // the window beam's aiming line, at shot height
+    ctx.save(); ctx.strokeStyle = '#6c3fd6'; ctx.globalAlpha = .25 + laser.k*.6; ctx.lineWidth = 1 + laser.k*5; ctx.setLineDash([8,6]); ctx.beginPath();
+    for (let d = 0; d <= 800; d += 25){ const wx = boss.x + Math.cos(laser.ang)*d, wy = boss.y + Math.sin(laser.ang)*d, P = proj(wx, wy), sy = P.y - LIFT*P.s; d ? ctx.lineTo(P.x, sy) : ctx.moveTo(P.x, sy); }
+    ctx.stroke(); ctx.restore();
+  }
+  drawBullets();
+  for (const p of parts){ const P = proj(p.x, p.y); ctx.globalAlpha = Math.max(0,p.life/p.max); ctx.fillStyle = p.col; const z = 3*P.s; ctx.fillRect(P.x - z/2, P.y - LIFT*P.s - z/2, z, z); }
+  ctx.globalAlpha = 1;
+}
+function drawBullets(){
+  for (const b of bullets){
+    if (b.kind === 'shadow' && b.own === 'boss' && !hero.lit && Math.hypot(b.x-hero.x, b.y-hero.y) > hero.light) continue;   // lost in the dark
+    liftedAt(b.x, b.y, () => drawShot(b));
+  }
+}
+function drawShot(b){
+  {
+    if (b.bat && b.own==='boss'){ drawBat(b.x,b.y,.85,b.t*16,'#2a0d1c'); ctx.fillStyle=C.blood; ctx.beginPath(); ctx.arc(b.x,b.y,3.6,0,7); ctx.fill(); return; }
+    let outer, inner;
+    if (b.own === 'hero'){ outer = b.perfect ? C.gold : C.silver; inner = '#fff'; }
+    else if (b.kind === 'shadow'){ outer = '#7b35f0'; inner = '#1a0f2e'; }
+    else { outer = C.blood; inner = '#ffe3e6'; }
+    const sh = b.kind === 'shadow' && b.own === 'boss';
+    // purple shots get a pale halo and rim so they read against the mauve table
+    ctx.globalAlpha = sh ? .55 : .35; ctx.fillStyle = sh ? '#f1e6ff' : outer; ctx.beginPath(); ctx.arc(b.x,b.y,b.r+3,0,7); ctx.fill();
+    ctx.globalAlpha = 1; ctx.fillStyle = outer; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill();
+    ctx.strokeStyle = sh ? '#ffffff' : 'rgba(25,8,20,.75)'; ctx.lineWidth = sh ? 1.4 : 1; ctx.stroke();
+    ctx.fillStyle = inner; ctx.beginPath(); ctx.arc(b.x,b.y,b.r*.45,0,7); ctx.fill();
+  }
+}
+
+function drawGarlics(){
+  for (const g of garlics){
+    const fade = Math.min(1, g.t), pulse = .5 + Math.sin(time*5)*.5;
+    const gr = ctx.createRadialGradient(g.x, g.y, 4, g.x, g.y, GARLIC_R);
+    gr.addColorStop(0, `rgba(255,248,226,${.35*fade})`); gr.addColorStop(1, 'rgba(255,248,226,0)');
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(g.x, g.y, GARLIC_R, 0, 7); ctx.fill();
+    ctx.strokeStyle = `rgba(255,248,226,${(.35 + pulse*.25)*fade})`; ctx.lineWidth = 1.5;
+    ctx.setLineDash([3,5]); ctx.beginPath(); ctx.arc(g.x, g.y, GARLIC_R, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+    // the bulb
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = '#efe6d2'; ctx.beginPath(); ctx.ellipse(g.x, g.y, 6, 5.5, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#a8957a'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(g.x, g.y-5); ctx.lineTo(g.x, g.y+5); ctx.moveTo(g.x-3, g.y-4); ctx.quadraticCurveTo(g.x-5, g.y, g.x-3, g.y+4);
+    ctx.moveTo(g.x+3, g.y-4); ctx.quadraticCurveTo(g.x+5, g.y, g.x+3, g.y+4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(g.x, g.y-5); ctx.lineTo(g.x+1, g.y-9); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawFloorFx(){
+  // the glowing cracks pulse
+  for (const g of GOO){
+    const k = .22 + Math.sin(time*3 + g.x)*.1;
+    const gr = ctx.createRadialGradient(g.x, g.y, 2, g.x, g.y, g.r*1.2);
+    gr.addColorStop(0, `rgba(150,255,90,${k})`); gr.addColorStop(1, 'rgba(150,255,90,0)');
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(g.x, g.y, g.r*1.2, 0, 7); ctx.fill();
+  }
+  for (const p of PILLARS){
+    const w = p.x1-p.x0, h = p.y1-p.y0;
+    if (p.hp <= 0 || p.fallen){
+      // the base is rubble once the column is gone
+      ctx.fillStyle = 'rgba(40,36,44,.62)'; ctx.fillRect(p.x0, p.y0, w, h);
+      ctx.fillStyle = '#5d5f58';
+      for (let i = 0; i < 9; i++){ const rx = p.x0 + ((i*37)%w), ry = p.y1 - 6 - ((i*13)%14); ctx.fillRect(rx, ry, 5, 4); }
+    }
+    if (p.fallen){
+      // the toppled column, lying across the floor as a wall
+      const r = blockRect(p), fw = r.x1-r.x0, fh = r.y1-r.y0, dmg = 1 - p.fallen.hp/SLAB_HP;
+      ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(r.x0+2, r.y0+5, fw, fh);
+      const sg = ctx.createLinearGradient(0, r.y0, 0, r.y1); sg.addColorStop(0, '#a4a69c'); sg.addColorStop(.5, '#7b7d74'); sg.addColorStop(1, '#4f514b');
+      ctx.fillStyle = sg; ctx.fillRect(r.x0, r.y0, fw, fh);
+      ctx.strokeStyle = '#3a3c37'; ctx.lineWidth = 1.2; ctx.strokeRect(r.x0, r.y0, fw, fh);
+      ctx.strokeStyle = 'rgba(40,40,36,.55)'; ctx.lineWidth = 1; ctx.beginPath();
+      for (let i = 1; i < 5; i++){ ctx.moveTo(r.x0 + fw*i/5, r.y0); ctx.lineTo(r.x0 + fw*i/5, r.y1); }
+      for (let i = 0; i < Math.ceil(dmg*7); i++){ const sx = r.x0 + fw*((i*0.29+0.1)%1); ctx.moveTo(sx, r.y0); ctx.lineTo(sx+4, r.y0+fh*.6); ctx.lineTo(sx+1, r.y1); }
+      ctx.stroke();
+      if (p.fallen.t < 1.5 && Math.floor(p.fallen.t*8)%2){ ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(r.x0, r.y0, fw, fh); }
+    }
+    if (p.hitT > 0){ p.hitT -= 1/60; if (p.fallen){ const r = blockRect(p); ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(r.x0, r.y0, r.x1-r.x0, r.y1-r.y0); } }
+  }
+}
+
+function drawPillar(p){
+  if (p.hp <= 0 || p.fallen || !IMG[p.img]) return;
+  const k = 1/projS(p.by);                 // the cut-out is already at photo scale
+  sprite(p.img, k, p.cx, p.by, false, p.hitT > 0);
+  const dmg = 1 - p.hp/p.max;
+  if (dmg > 0){
+    const h = IMG[p.img].height*k, w = IMG[p.img].width*k;
+    ctx.strokeStyle = `rgba(20,16,24,${.4 + dmg*.5})`; ctx.lineWidth = 1.6; ctx.beginPath();
+    for (let i = 0; i < Math.ceil(dmg*7); i++){
+      const sx = p.cx - w*0.3 + w*0.6*((i*0.37 + 0.15)%1), sy = p.by - h*0.9 + h*0.75*((i*0.23 + 0.1)%1);
+      ctx.moveTo(sx, sy); ctx.lineTo(sx + 6 - (i%3)*5, sy + 10); ctx.lineTo(sx + 2, sy + 19);
+    }
+    ctx.stroke();
+  }
+}
+function drawTable(){
+  const tg = ctx.createRadialGradient(480, 500, 60, 480, 560, VH*0.75);
+  tg.addColorStop(0, '#9a72aa'); tg.addColorStop(1, '#4f4086');
+  ctx.fillStyle = tg; ctx.fillRect(VX, VY, VW, VH);
+}
+function drawClosed(alpha, sc){
+  if (!IMG.closed) return;
+  const w = 620, h = w * IMG.closed.height / IMG.closed.width;
+  const bob = reduceMotion ? 0 : Math.sin(performance.now()/700) * 3;
+  ctx.save(); ctx.globalAlpha = alpha;
+  ctx.translate(482, 830 + bob); ctx.scale(sc, sc);
+  ctx.drawImage(IMG.closed, -w/2, -h/2, w, h);
+  // the green eyes glow while it waits
+  const eg = .25 + Math.sin(performance.now()/350)*.15;
+  for (const ex of [-0.0772, 0.0736]){
+    const gx = ex*w, gy = -h/2 + h*0.654, gr = ctx.createRadialGradient(gx, gy, 1, gx, gy, 30);
+    gr.addColorStop(0, `rgba(190,255,150,${eg + .1})`); gr.addColorStop(1, 'rgba(190,255,150,0)');
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(gx, gy, 30, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ---------- multiplane camera ----------
+// built like an animation stand: a backlit far plane, the toy on the middle plane, and a near glass of
+// out-of-focus light. A camera above them leans, trucks in and out, pulls focus, rolls, and cuts with a capping shutter.
+const PLANE_FAR = 0.35, PLANE_NEAR = 1.9, FAR_M = 0.18;
+let rigM = null, farMix = null, farSharp = null, farSoft = null, nearOrbs = [], ash = [], camLast = performance.now();
+let camMove = !reduceMotion;
+try { const v = localStorage.getItem('cc-cam'); if (v) camMove = v === '1'; } catch(e){}
+const rig = { cur: { ax: 180, ay: 320, px: 0, py: 0, z: 1, roll: 0 }, focus: .3, shut: 0, lb: 0, cut: -1, prev: 'closed', primed: false };
+function buildPlanes(){
+  // far plane: baked once at half resolution, then a blurred copy for focus pulls
+  const r = dpr*0.5, W = Math.round(cssW*(1 + 2*FAR_M)*r), H = Math.round(cssH*(1 + 2*FAR_M)*r);
+  farSharp = document.createElement('canvas'); farSharp.width = W; farSharp.height = H;
+  const g = farSharp.getContext('2d');
+  g.setTransform(camS*r, 0, 0, camS*r, (FAR_M*cssW - VX*camS)*r, (FAR_M*cssH - VY*camS)*r);
+  const x0 = VX - FAR_M*cssW/camS - 10, y0 = VY - FAR_M*cssH/camS - 10, w = VW*(1 + 2*FAR_M) + 20, h = VH*(1 + 2*FAR_M) + 20;
+  // the sky layer: a storm over the castle, heavy cloud banks lit from inside
+  const tg = g.createLinearGradient(0, y0, 0, y0 + h);
+  tg.addColorStop(0, '#120f26'); tg.addColorStop(.45, '#2b2450'); tg.addColorStop(.75, '#4a3b6c'); tg.addColorStop(1, '#2a2246');
+  g.fillStyle = tg; g.fillRect(x0, y0, w, h);
+  let cs = 11; const crnd = () => (cs = (cs*16807) % 2147483647)/2147483647;
+  const cloudCols = ['70,58,112', '108,78,128', '28,24,50', '58,86,108', '132,96,140'];
+  for (let i = 0; i < 90; i++){
+    const cx = x0 + crnd()*w, cy = y0 + crnd()*h*0.85, rx = 120 + crnd()*300, ry = rx*(.32 + crnd()*.25), a = .12 + crnd()*.25;
+    const col = cloudCols[(crnd()*cloudCols.length) | 0];
+    g.save(); g.translate(cx, cy); g.scale(1, ry/rx);
+    const cg = g.createRadialGradient(-rx*.15, -rx*.2, rx*.1, 0, 0, rx);
+    cg.addColorStop(0, `rgba(${col},${a})`); cg.addColorStop(1, `rgba(${col},0)`);
+    g.fillStyle = cg; g.beginPath(); g.arc(0, 0, rx, 0, 7); g.fill(); g.restore();
+  }
+  // faint pink glow where the storm has been striking
+  for (let i = 0; i < 5; i++){
+    const cx = x0 + crnd()*w, cy = y0 + crnd()*h*0.5, rr = 160 + crnd()*200;
+    const pg = g.createRadialGradient(cx, cy, 0, cx, cy, rr); pg.addColorStop(0, 'rgba(230,120,190,.16)'); pg.addColorStop(1, 'rgba(230,120,190,0)');
+    g.fillStyle = pg; g.fillRect(cx - rr, cy - rr, rr*2, rr*2);
+  }
+  // the backlight: a pale glow behind the lid so the toy has a rim of light
+  const bl = g.createRadialGradient(482, 560, 140, 482, 560, 720);
+  bl.addColorStop(0, 'rgba(255,230,240,.42)'); bl.addColorStop(.55, 'rgba(255,230,240,.12)'); bl.addColorStop(1, 'rgba(255,230,240,0)');
+  g.fillStyle = bl; g.fillRect(x0, y0, w, h);
+  // dust on the glass of the base plane
+  let sd = 7; const rnd = () => (sd = (sd*16807) % 2147483647)/2147483647;
+  for (let i = 0; i < 90; i++){ g.fillStyle = `rgba(255,240,250,${.08 + rnd()*.18})`; g.fillRect(x0 + rnd()*w, y0 + rnd()*h, 2 + rnd()*2, 2 + rnd()*2); }
+  farSoft = document.createElement('canvas'); farSoft.width = W; farSoft.height = H;
+  const sg = farSoft.getContext('2d');
+  if ('filter' in sg){ sg.filter = `blur(${Math.max(3, 9*r)}px)`; sg.drawImage(farSharp, 0, 0); sg.filter = 'none'; }
+  else { const t = document.createElement('canvas'); t.width = Math.max(1, W >> 3); t.height = Math.max(1, H >> 3); t.getContext('2d').drawImage(farSharp, 0, 0, t.width, t.height); sg.imageSmoothingQuality = 'high'; sg.drawImage(t, 0, 0, W, H); }
+  // near glass: big soft lights near the frame edges, and fine ash drifting up across everything
+  nearOrbs = []; const m = Math.min(cssW, cssH), cols = ['255,214,130', '167,123,255', '255,120,140', '236,228,214'];
+  for (let i = 0; i < 11; i++){
+    const side = i % 4, a = Math.random(), b = Math.random();
+    const x = side === 0 ? a*.14 : side === 1 ? .86 + a*.14 : a, y = side === 2 ? b*.12 : side === 3 ? .88 + b*.12 : b;
+    nearOrbs.push({ x: x*cssW, y: y*cssH, r: m*(.05 + Math.random()*.1), c: cols[i % 4], a: .04 + Math.random()*.06, ph: Math.random()*6, sp: .15 + Math.random()*.3 });
+  }
+  // the usual mix of the two, so a normal frame draws the far plane once
+  farMix = document.createElement('canvas'); farMix.width = W; farMix.height = H;
+  const xg = farMix.getContext('2d'); xg.drawImage(farSoft, 0, 0); xg.globalAlpha = .7; xg.drawImage(farSharp, 0, 0);
+  ash = []; for (let i = 0; i < 18; i++) ash.push({ x: Math.random()*cssW, y: Math.random()*cssH, r: .8 + Math.random()*1.6, v: 6 + Math.random()*12, ph: Math.random()*6 });
+}
+const ease = (cur, tgt, rate, dt) => cur + (tgt - cur)*(1 - Math.exp(-rate*dt));
+function toScr(P){ return { x: (P.x - VX)*camS, y: (P.y - VY)*camS }; }
+function camTarget(){
+  const T = { ax: cssW/2, ay: cssH/2, px: 0, py: 0, z: 1, roll: 0, focus: .3, lb: 0, rate: 3 };
+  if (!camMove || !ready || !hero || !(state === 'play' || state === 'won' || state === 'ending' || state === 'defeat')) return T;
+  const H = toScr(proj(hero.x, hero.y)), B = toScr(proj(boss.x, boss.y - 70));
+  // follow: lean toward Wren and breathe in a touch
+  T.ax = H.x; T.ay = H.y; T.z = 1.025; T.px = -(H.x - cssW/2)*0.08; T.py = -(H.y - cssH/2)*0.05;
+  const blood = boss.fury;
+  if (blood) T.roll = Math.sin(time*.55)*0.012;
+  if (slowT > 0){ T.z = 1.07; T.focus = 1; T.rate = 5; }
+  if (state === 'won' || state === 'ending' || state === 'defeat'){ T.ax = B.x; T.ay = B.y; T.z = 1.12; T.px = (cssW/2 - B.x)*0.2; T.focus = .8; T.lb = .06; T.rate = 1.2; }
+  // a jolt on big hits
+  if (shake > 0) T.z += Math.min(.3, shake)*0.08;
+  const lim = cssW*0.07; T.px = Math.max(-lim, Math.min(lim, T.px)); T.py = Math.max(-lim, Math.min(lim, T.py));
+  return T;
+}
+function updateRig(dt){
+  const T = camTarget(), c = rig.cur;
+  // a phase change cuts: the capping shutter closes, the camera jumps to the close-up, the shutter opens
+  rig.prev = state;
+  if (rig.cut >= 0){
+    const was = rig.cut; rig.cut += dt;
+    rig.shut = rig.cut < .16 ? rig.cut/.16 : Math.max(0, 1 - (rig.cut - .16)/.16);
+    if (was < .16 && rig.cut >= .16) Object.assign(c, { ax: T.ax, ay: T.ay, px: T.px, py: T.py, z: T.z, roll: T.roll });
+    if (rig.cut > .32){ rig.cut = -1; rig.shut = 0; }
+    if (was < .16 && rig.cut < .16) return;   // hold the old shot while the shutter closes
+  }
+  if (!rig.primed){ Object.assign(c, { ax: T.ax, ay: T.ay }); rig.primed = true; }
+  c.ax = ease(c.ax, T.ax, T.rate, dt); c.ay = ease(c.ay, T.ay, T.rate, dt);
+  c.px = ease(c.px, T.px, T.rate, dt); c.py = ease(c.py, T.py, T.rate, dt);
+  c.z = ease(c.z, T.z, T.rate*0.8, dt); c.roll = ease(c.roll, T.roll, 2, dt);
+  rig.focus = ease(rig.focus, T.focus, 4, dt); rig.lb = ease(rig.lb, T.lb, 4, dt);
+}
+// screen point -> point on the middle plane (for the desktop mouse)
+function rigInv(x, y){
+  const c = rig.cur, dx = x - c.ax - c.px, dy = y - c.ay - c.py, co = Math.cos(-c.roll), si = Math.sin(-c.roll);
+  return { x: c.ax + (dx*co - dy*si)/c.z, y: c.ay + (dx*si + dy*co)/c.z };
+}
+function planeXf(sc, depth, rollK){
+  const c = rig.cur, z = 1 + (c.z - 1)*depth;
+  sc.translate(c.ax + c.px*depth, c.ay + c.py*depth); sc.rotate(c.roll*rollK); sc.scale(z, z); sc.translate(-c.ax, -c.ay);
+}
+// lightning in the sky layer: a branching bolt now and then, more often under the Blood Moon
+const storm = { next: 2.5, bolts: [], flash: 0 };
+function makeBolt(){
+  const pts = [], x = VX - 60 + Math.random()*(VW + 120), yEnd = 250 + Math.random()*480;
+  let px = x, py = VY - 200; pts.push([px, py]);
+  const n = 12 + (Math.random()*6 | 0), dy = (yEnd - py)/n;
+  for (let i = 0; i < n; i++){ px += (Math.random() - .5)*70; py += dy*(.7 + Math.random()*.6); pts.push([px, py]); }
+  const branches = [];
+  for (let k = 0; k < 2 + (Math.random()*2 | 0); k++){
+    const s0 = pts[2 + (Math.random()*(pts.length - 4) | 0)], br = [s0.slice()], dir = Math.random() < .5 ? -1 : 1;
+    let bx = s0[0], by = s0[1];
+    for (let j = 0; j < 4 + (Math.random()*4 | 0); j++){ bx += dir*(15 + Math.random()*40); by += 20 + Math.random()*35; br.push([bx, by]); }
+    branches.push(br);
+  }
+  return { pts, branches, life: .38 };
+}
+function stormStep(dt){
+  if (reduceMotion){ storm.bolts.length = 0; storm.flash = 0; return; }
+  const blood = ready && hero && boss && state !== 'closed' && (boss.fury || state === 'defeat');
+  storm.next -= dt;
+  if (endKind === 'dawn' && (state === 'ending' || state === 'won')) storm.next = 9;
+  if (storm.next <= 0){
+    storm.bolts.push(makeBolt()); storm.flash = 1;
+    storm.next = Math.random() < .25 ? .18 : (blood ? 1.4 + Math.random()*3 : 3.5 + Math.random()*6);   // sometimes a double strike
+  }
+  for (const b of storm.bolts) b.life -= dt;
+  storm.bolts = storm.bolts.filter(b => b.life > 0);
+  storm.flash = Math.max(0, storm.flash - dt*4);
+  return blood;
+}
+function drawBolts(sc, blood){
+  if (!storm.bolts.length && storm.flash <= 0) return;
+  if (storm.flash > 0){ sc.fillStyle = `rgba(205,175,255,${storm.flash*.2})`; sc.fillRect(VX - VW, VY - VH, VW*3, VH*3); }
+  sc.save(); sc.globalCompositeOperation = 'lighter'; sc.lineJoin = 'round'; sc.lineCap = 'round';
+  const col = blood ? '255,90,120' : '255,170,235';
+  for (const b of storm.bolts){
+    const a = b.life > .26 ? 1 : (Math.random() < .65 ? b.life/.26 : .25);
+    const path = p => { sc.beginPath(); sc.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) sc.lineTo(p[i][0], p[i][1]); sc.stroke(); };
+    sc.strokeStyle = `rgba(${col},${.22*a})`; sc.lineWidth = 12; path(b.pts);
+    sc.strokeStyle = `rgba(255,240,255,${.9*a})`; sc.lineWidth = 2.6; path(b.pts);
+    sc.lineWidth = 1.4; sc.strokeStyle = `rgba(${col},${.7*a})`; for (const br of b.branches) path(br);
+  }
+  sc.restore();
+}
+function drawFar(sc, dt = 0){
+  sc.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (!farMix){ sc.fillStyle = '#2f2658'; sc.fillRect(0, 0, cssW, cssH); return; }
+  sc.save(); planeXf(sc, PLANE_FAR, .5);
+  const X = -FAR_M*cssW, Y = -FAR_M*cssH, W = cssW*(1 + 2*FAR_M), H = cssH*(1 + 2*FAR_M);
+  if (Math.abs(rig.focus - .3) < .04) sc.drawImage(farMix, X, Y, W, H);
+  else {
+    sc.drawImage(farSoft, X, Y, W, H);
+    const sharp = Math.max(0, 1 - rig.focus);
+    if (sharp > .02){ sc.globalAlpha = sharp; sc.drawImage(farSharp, X, Y, W, H); sc.globalAlpha = 1; }
+  }
+  // live parts of the far plane, in board coordinates: lightning, low mist sliding past, and the moon going red
+  sc.transform(camS, 0, 0, camS, -VX*camS, -VY*camS);
+  const t = performance.now()/1000;
+  drawBolts(sc, stormStep(dt));
+  for (let i = 0; i < 3; i++){
+    const mx = 482 + Math.sin(t*0.06 + i*2.1)*(camMove ? 320 : 0), my = 1180 + i*80 - 700*(i === 1), rx = 560, ry = 70;
+    sc.save(); sc.translate(mx, my); sc.scale(1, ry/rx);
+    const mg = sc.createRadialGradient(0, 0, 0, 0, 0, rx); mg.addColorStop(0, 'rgba(225,205,245,.10)'); mg.addColorStop(1, 'rgba(225,205,245,0)');
+    sc.fillStyle = mg; sc.beginPath(); sc.arc(0, 0, rx, 0, 7); sc.fill(); sc.restore();
+  }
+  if (endKind === 'dawn' && (state === 'ending' || state === 'won')){
+    const k = Math.min(1, (state === 'won' ? END_T : endT)/3);
+    const dg = sc.createLinearGradient(0, VY - 300, 0, VY + VH);
+    dg.addColorStop(0, `rgba(255,170,110,${.45*k})`); dg.addColorStop(.6, `rgba(255,120,140,${.25*k})`); dg.addColorStop(1, 'rgba(255,120,140,0)');
+    sc.fillStyle = dg; sc.fillRect(-300, -600, 1560, 2200);
+  }
+  if (ready && boss && (boss.fury || state === 'defeat') && state !== 'won' && state !== 'closed'){
+    const rg = sc.createRadialGradient(482, 560, 120, 482, 560, 700);
+    rg.addColorStop(0, `rgba(255,40,70,${.30 + Math.sin(t*2)*.08})`); rg.addColorStop(1, 'rgba(255,40,70,0)');
+    sc.fillStyle = rg; sc.fillRect(-300, -300, 1560, 1700);
+  }
+  sc.restore();
+}
+function drawNear(sc, dt){
+  sc.setTransform(dpr, 0, 0, dpr, 0, 0);
+  sc.save(); planeXf(sc, PLANE_NEAR, 1.2);
+  const t = performance.now()/1000, f = rig.focus, mv = camMove ? 1 : 0;
+  sc.globalCompositeOperation = 'lighter';
+  for (const o of nearOrbs){
+    const x = o.x + Math.sin(t*o.sp + o.ph)*14*mv, y = o.y + Math.cos(t*o.sp*.8 + o.ph)*10*mv, r = o.r*(1 + f*.35), a = o.a*(1 + f*.9);
+    const g = sc.createRadialGradient(x, y, r*.55, x, y, r);
+    g.addColorStop(0, `rgba(${o.c},${a})`); g.addColorStop(.85, `rgba(${o.c},${a*.8})`); g.addColorStop(1, `rgba(${o.c},0)`);
+    sc.fillStyle = g; sc.beginPath(); sc.arc(x, y, r, 0, 7); sc.fill();
+  }
+  sc.globalCompositeOperation = 'source-over';
+  const ember = ready && boss && (boss.fury || state === 'defeat') && state !== 'closed';
+  sc.fillStyle = ember ? 'rgba(255,110,90,.5)' : 'rgba(236,228,214,.32)';
+  for (const p of ash){
+    if (mv && !reduceMotion){ p.y -= p.v*dt; p.x += Math.sin(t*.9 + p.ph)*8*dt; if (p.y < -10){ p.y = cssH + 10; p.x = Math.random()*cssW; } }
+    sc.beginPath(); sc.arc(p.x, p.y, p.r, 0, 7); sc.fill();
+  }
+  sc.restore();
+  // letterbox for close-ups, then the capping shutter's blades
+  const lb = rig.lb*cssH, sh = rig.shut*cssH/2, hgt = Math.max(lb, sh);
+  if (hgt > .5){
+    sc.fillStyle = '#0d0718'; sc.fillRect(0, 0, cssW, hgt); sc.fillRect(0, cssH - hgt, cssW, hgt);
+    sc.fillStyle = 'rgba(255,214,130,.35)'; sc.fillRect(0, hgt - 1, cssW, 1); sc.fillRect(0, cssH - hgt, cssW, 1);
+  }
+}
+// the screen transform with the camera's move folded in (device pixels)
+function rigSet(c, a, b, cc, d, e, f){
+  if (!rigM){ c.setTransform(a, b, cc, d, e, f); return; }
+  c.setTransform(rigM.multiply(new DOMMatrix([a, b, cc, d, e, f])));
+}
+function fillWide(){ ctx.fillRect(VX - VW*.3, VY - VH*.3, VW*1.6, VH*1.6); }
+let slowEma = 1/60, slowFor = 0, camAuto = false;
+function draw(){
+  const now = performance.now(), rdt = Math.min(.05, (now - camLast)/1000); camLast = now;
+  // a device that can't keep up gets a still camera for the rest of the visit
+  if (camMove && state === 'play' && !document.hidden){
+    slowEma += (rdt - slowEma)*0.05; slowFor = slowEma > 1/38 ? slowFor + rdt : 0;
+    if (slowFor > 3){ camMove = false; camAuto = true; if (typeof syncCam === 'function') syncCam(); }
+  }
+  if (!farMix) buildPlanes();
+  updateRig(rdt);
+  const sc = screenCtx;
+  drawFar(sc, rdt);
+  if (!ready || state === 'closed'){
+    sc.setTransform(dpr*camS,0,0,dpr*camS,-VX*dpr*camS,-VY*dpr*camS);
+    if (ready) drawClosed(1, 1);
+    drawNear(sc, rdt); return;
+  }
+  // the toy and the fight: the middle plane, moved by the camera
+  const c = rig.cur;
+  rigM = new DOMMatrix().scale(dpr).translate(c.ax + c.px, c.ay + c.py).rotate(c.roll*180/Math.PI).scale(c.z).translate(-c.ax, -c.ay).scale(1/dpr);
+  try {
+    rigSet(ctx, dpr*camS,0,0,dpr*camS,-VX*dpr*camS,-VY*dpr*camS);
+    drawArena();
+    if (state === 'opening'){
+      const k = Math.min(1, openT), e = k*k*(3-2*k);
+      ctx.fillStyle = `rgba(154,114,170,${1-e})`; fillWide();
+      drawClosed(1-e, 1 + e*0.6);
+    }
+    if (state === 'over'){
+      const e = overT*overT*(3-2*overT);
+      ctx.fillStyle = `rgba(154,114,170,${e*.92})`; fillWide();
+      drawClosed(e, 1.6 - e*0.6);
+    }
+  } finally { rigM = null; }
+  drawNear(sc, rdt);
+}
+
+// draw into a flat layer with the camera transform, run fn, and hand ctx back to the screen
+function inLayer(c, fn){
+  c.setTransform(1,0,0,1,0,0); c.clearRect(0, 0, c.canvas.width, c.canvas.height);
+  c.setTransform(FR, 0, 0, FR, -FW.x0*FR, -FW.y0*FR);
+  ctx = c; try { fn(); } finally { ctx = mainCtx; }
+}
+// draw an upright figure: its own coordinates, but placed at its projected spot and scaled by depth
+function upright(x, y, fn){
+  const P = proj(x, y);
+  ctx.save(); ctx.translate(P.x, P.y); ctx.scale(P.s, P.s); ctx.translate(-x, -y); fn(); ctx.restore();
+}
+function drawGround(){
+  drawFloorFx();
+  drawGarlics();
+  // the organ pipes light up while he plays
+  if (boss.atk && ATK[boss.atk.id].organ && state === 'play'){
+    const p = .5 + Math.sin(time*14)*.5;
+    for (const [x0, x1] of [[12, 132], [229, 345]]){
+      const g = ctx.createLinearGradient(0, 94, 0, -202);
+      g.addColorStop(0, 'rgba(255,240,200,0)'); g.addColorStop(.6, `rgba(255,240,200,${.08 + p*.12})`); g.addColorStop(1, `rgba(255,240,200,${.15 + p*.2})`);
+      ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g;
+      ctx.beginPath(); ctx.ellipse((x0+x1)/2, -54, (x1-x0)/2, 148, 0, 0, 7); ctx.fill(); ctx.restore();
+    }
+  }
+  if (curLook() === 2 && state !== 'won'){ // rose window glow
+    const g = ctx.createRadialGradient(180, -179, 4, 180, -179, 75);
+    g.addColorStop(0, `rgba(255,60,70,${.35 + Math.sin(time*5)*.15})`); g.addColorStop(1, 'rgba(255,60,70,0)');
+    ctx.fillStyle = g; ctx.fillRect(100, -259, 160, 160);
+  }
+  // every shot casts a small shadow on the floor, right under where it floats
+  for (const b of bullets){
+    if (b.kind === 'shadow' && b.own === 'boss' && !hero.lit && Math.hypot(b.x-hero.x, b.y-hero.y) > hero.light) continue;
+    ctx.fillStyle = 'rgba(8,4,16,.5)'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r*1.05, 0, 7); ctx.fill();
+  }
+  if (hero.camp.t > CAMP_WARN && state === 'play'){
+    const k = Math.min(1, (hero.camp.t - CAMP_WARN)/CAMP_ARM), pulse = .5 + Math.sin(time*14)*.5;
+    ctx.save();
+    ctx.strokeStyle = `rgba(241,230,255,${.35 + k*.5})`; ctx.lineWidth = 2;
+    ctx.setLineDash([5,4]); ctx.lineDashOffset = -time*30;
+    ctx.beginPath(); ctx.arc(hero.camp.x, hero.camp.y, 40 - k*14, 0, 7); ctx.stroke();
+    ctx.setLineDash([]);
+    if (k >= 1){ ctx.strokeStyle = `rgba(123,53,240,${.5 + pulse*.4})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(hero.camp.x, hero.camp.y, 24, 0, 7); ctx.stroke(); }
+    ctx.restore();
+  }
+  drawAura();
+  drawPickups();
+}
+function drawAir(){
+  // lantern light sweeping outward
+  if (light){
+    const a = Math.max(0, 1 - light.r/900);
+    const g = ctx.createRadialGradient(light.x, light.y, Math.max(0, light.r - 50), light.x, light.y, light.r);
+    g.addColorStop(0, 'rgba(242,184,75,0)'); g.addColorStop(.8, `rgba(255,214,130,${.55*a})`); g.addColorStop(1, 'rgba(255,214,130,0)');
+    ctx.fillStyle = g; ctx.fillRect(VX, VY, VW, VH);
+  }
+}
+function drawArena(){
+  const shx = shake > 0 && !reduceMotion ? (Math.random()-.5)*6 : 0, shy = shake > 0 && !reduceMotion ? (Math.random()-.5)*6 : 0;
+  ctx.save(); rigSet(ctx, 1,0,0,1,0,0);
+  ctx.drawImage(bg, shx*camS*dpr, shy*camS*dpr);
+  ctx.restore();
+  // ground effects, warped like the board
+  inLayer(fxC, drawGround); warp(mainCtx, fxL, shx, shy);
+  ctx.save(); ctx.translate(shx, shy);
+  // upright figures
+  if (state !== 'won') upright(boss.x, boss.y, drawDracula);
+  drawEnding();
+  drawDefeat();
+  const figs = PILLARS.map(p => ({ y: p.by, draw: () => upright(p.cx, p.by, () => drawPillar(p)) }));
+  if (state !== 'over' || overT < .5) figs.push({ y: hero.y, draw: () => { const P = proj(hero.x, hero.y); ctx.save();
+    if (state === 'defeat' || state === 'over'){ const k = state === 'over' ? 1 : Math.min(1, defT/.55); ctx.translate(P.x, P.y); ctx.rotate(k*1.4*(hero.x < boss.x ? -1 : 1)); ctx.translate(-P.x, -P.y); ctx.globalAlpha = 1 - k*.3; }
+    ctx.translate(P.x, P.y - LIFT*P.s); ctx.scale(P.s, P.s); ctx.translate(-hero.x, -hero.y); drawHero(); ctx.restore(); } });
+  figs.sort((a, b) => a.y - b.y).forEach(f => f.draw());
+  ctx.restore();
+  // shots and sparks, warped too, above the figures so nothing hides behind Wren
+  inLayer(buC, drawAir); warp(mainCtx, buL, shx, shy);
+  ctx.save(); ctx.translate(shx, shy);
+  drawLifted();
+  const H = proj(hero.x, hero.y);
+  // the dark: with the lantern off, everything beyond Wren's light sinks into shadow
+  if (state === 'play'){
+    const R = (hero.lit ? LIGHT_MAX : hero.light)*H.s, a = hero.lit ? 0 : Math.min(.7, .3 + (1 - (hero.light - LIGHT_MIN)/(LIGHT_OFF_CAP - LIGHT_MIN))*.4);
+    if (a > 0.01){
+      const g = ctx.createRadialGradient(H.x, H.y, Math.max(8, R*0.75), H.x, H.y, R + 30);
+      g.addColorStop(0, 'rgba(10,4,24,0)'); g.addColorStop(1, `rgba(10,4,24,${a})`);
+      ctx.fillStyle = g; fillWide();
+    }
+  }
+  // slow motion: the room dims at the edges
+  if (slowT > 0){
+    const a = Math.min(1, slowT*3)*.45;
+    const g = ctx.createRadialGradient(H.x, H.y, 80, H.x, H.y, 560);
+    g.addColorStop(0, 'rgba(30,14,63,0)'); g.addColorStop(1, `rgba(30,14,63,${a})`);
+    ctx.fillStyle = g; fillWide();
+  }
+  ctx.font = '700 16px "JetBrains Mono", monospace'; ctx.textAlign = 'center';
+  for (const t of texts){ const P = proj(t.x, t.y); ctx.globalAlpha = Math.min(1,t.life*2); ctx.fillStyle = '#120b14'; ctx.fillText(t.txt,P.x+1,P.y+1); ctx.fillStyle = t.col; ctx.fillText(t.txt,P.x,P.y); }
+  ctx.globalAlpha = 1;
+  if (banner){
+    const a = Math.min(1, banner.t*2, (2.2-banner.t)*3);
+    ctx.globalAlpha = Math.max(0,a);
+    ctx.fillStyle = 'rgba(30,14,63,.85)'; ctx.fillRect(VX - VW, 640, VW*3, 72);
+    ctx.font = '48px "Pirata One", Georgia, serif'; ctx.fillStyle = C.bone; ctx.fillText(banner.txt, 482, 692);
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+}
+
+// ---------- HUD ----------
+const $ = id => document.getElementById(id);
+let lastHud = '';
+function hud(){
+  if (!hero) return;
+  $('bossBar').style.width = Math.max(0, boss.hp/boss.max*100) + '%';
+  $('stBar').style.width = hero.st + '%';
+  $('lnBar').style.width = hero.lantern + '%';
+  $('stBarWrap').classList.toggle('broke', hero.lock > 0);
+  $('lnBarWrap').classList.toggle('ready', hero.lantern >= 100);
+  const hp = Math.max(0, Math.round(hero.hp));
+  const h = hp + '|' + phases()[boss.phase].name + '|' + hero.garlic;
+  if (h !== lastHud){
+    lastHud = h; const [hs, n, g] = h.split('|');
+    const pct = hp/hero.maxHp*100 + '%';
+    $('hpBar').style.width = pct; $('hpLag').style.width = pct; $('hpNum').textContent = hs;
+    $('hearts').setAttribute('aria-valuenow', hs); $('hearts').classList.toggle('low', hp > 0 && hp <= 30);
+    $('phaseName').textContent = n;
+    $('garlicN').textContent = g; $('garlicTxt').textContent = 'Garlic ' + g;
+    $('garlicBtn').classList.toggle('empty', hero.garlic <= 0);
+  }
+  wb.classList.toggle('on', hero.ward);
+  wb.classList.toggle('broke', hero.lock > 0 || hero.garlicT > 0);
+  wb.classList.toggle('shattered', hero.shatterT > 0);
+  lb.classList.toggle('on', hero.lit);
+  wb.style.setProperty('--st-pct', Math.round(hero.st));
+  lb.style.setProperty('--ln', Math.round(hero.lantern));
+  lb.classList.toggle('ready', hero.lantern >= 100);
+  rb.classList.toggle('cool', hero.rollCd > 0 || !!hero.roll || hero.shatterT > 0 || hero.garlicT > 0);
+  botBtn.textContent = bot.on ? 'Take over from the computer' : (run.ranked && !run.done ? 'Let the computer play (ends your ranked try, 0 points)' : 'Let the computer play');
+  botBtn.setAttribute('aria-pressed', bot.on ? 'true' : 'false');
+  $('botTag').hidden = !bot.on;
+  $('oilBar').style.width = hero.oil + '%';
+  $('oilChip').classList.toggle('low', hero.oil < 30);
+  $('oilChip').classList.toggle('slow', hero.slowT > 0);
+  $('bossWrap').classList.toggle('open', boss.open > 0);
+}
+
+const LAYERS = ['menu', 'pause', 'result'];
+function showLayer(id){
+  for (const l of LAYERS) $(l).hidden = l !== id;
+  document.body.classList.toggle('layer-open', !!id);
+  if (id){ const el = $(id); el.scrollTop = 0; const f = el.querySelector('button'); if (f && !isTouch()) f.focus({ preventScroll: true }); }
+}
+let paused = false;
+const playing = () => state === 'play' || state === 'opening';
+// while the ranked try is running, the pause menu warns that leaving ends it
+function syncPause(){
+  const live = run.ranked && !run.done;
+  $('pRestart').textContent = live ? 'Restart (ends your ranked try)' : 'Restart';
+  $('pMenu').textContent = live ? 'Main menu (ends your ranked try)' : 'Main menu';
+}
+function setPaused(on){
+  if (on && !playing()) return;
+  paused = on; syncPause();
+  showLayer(on ? 'pause' : null);
+  if (!on) cv.focus({ preventScroll: true });
+}
+function showOverlay(t, p, btn, res, wasRanked){
+  $('ovTitle').textContent = t; $('ovText').textContent = p; $('ovBtn').textContent = btn;
+  const d = loadRec().days[String(DAILY.seed)];
+  const tag = $('ovTag');
+  if (bot.used && !run.ranked){ tag.textContent = bot.on ? 'The computer\'s run · doesn\'t rank' : 'The computer helped · doesn\'t rank'; tag.className = 'rankTag practice'; }
+  else if (wasRanked){ tag.textContent = 'Ranked try · this is today\'s score'; tag.className = 'rankTag ranked'; }
+  else if (run.ranked){ tag.textContent = 'Ranked try · handed to the computer, 0 points'; tag.className = 'rankTag practice'; }
+  else { tag.textContent = 'Practice · your ranked score stays ' + (d && d.ranked ? d.ranked.total.toLocaleString() : '0'); tag.className = 'rankTag practice'; }
+  resultLines(res && !(bot.used && !run.ranked) ? res : null);
+  badgeList($('ovBadges'), res && (wasRanked || !run.ranked) ? res.badges.concat(wasRanked && res.won ? [] : []) : [], wasRanked);
+  $('ovBot').disabled = !(d && d.ranked);
+  $('ovShare').hidden = !(d && d.ranked);
+  $('rShareTxt').hidden = true;
+  showLayer('result');
+}
+function start(){
+  seedFight(); reset(); bot.used = bot.on; paused = false; showLayer(null);
+  // the first run of the day the player starts themselves is the ranked one; mark it at once
+  const r = loadRec(), d = today(r);
+  run = { ranked: !bot.on && !d.ranked && !d.rankedStarted, done: false };
+  if (run.ranked) d.rankedStarted = true;
+  if (!bot.on) d.runs++;
+  saveRec(r);
+  syncPause();
+  document.body.classList.add('in-game');
+  state = 'opening'; openT = 0; cv.focus({ preventScroll: true });
+}
+function toMenu(){
+  abandonRanked('left');
+  bot.on = false; paused = false; state = 'closed';
+  document.body.classList.remove('in-game');
+  if (dayInfo().seed !== DAILY.seed) buildDaily();
+  renderDaily(); showLayer('menu');
+}
+$('ovBtn').addEventListener('click', () => { bot.on = false; start(); });
+$('ovBot').addEventListener('click', () => { bot.on = true; start(); });
+$('rMenu').addEventListener('click', toMenu);
+$('pauseBtn').addEventListener('click', () => setPaused(true));
+$('pResume').addEventListener('click', () => setPaused(false));
+$('pRestart').addEventListener('click', () => { abandonRanked('left'); start(); });
+$('pMenu').addEventListener('click', toMenu);
+function copyShare(btn, out){
+  const txt = shareText();
+  const show = () => { out.hidden = false; out.textContent = txt; };
+  const done = () => { const old = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => btn.textContent = old, 1400); };
+  try { navigator.clipboard.writeText(txt).then(done, show); } catch(e){ show(); }
+}
+$('ovShare').addEventListener('click', e => copyShare(e.currentTarget, $('rShareTxt')));
+$('dShare').addEventListener('click', e => copyShare(e.currentTarget, $('dShareTxt')));
+$('dPlay').addEventListener('click', () => { bot.on = false; start(); });
+$('dWatch').addEventListener('click', () => { bot.on = true; start(); });
+// leaving the app mid-fight pauses it; closing the page during the ranked try ends it
+window.addEventListener('pagehide', () => abandonRanked('left'));
+document.addEventListener('visibilitychange', () => { if (document.hidden && playing() && !bot.on) setPaused(true); });
+// no pinch-zoom or double-tap zoom on the game
+document.addEventListener('gesturestart', e => e.preventDefault());
+document.addEventListener('dblclick', e => { if (!e.target.closest('.layer')) e.preventDefault(); });
+
+function renderDaily(){
+  $('dNum').textContent = '#' + DAILY.num; $('dDate').textContent = DAILY.label;
+  $('dName').textContent = DAILY.name;
+  $('dHp').textContent = DAILY.phase.hp + ' HP';
+  $('dPats').innerHTML = '';
+  for (const l of DAILY.labels){ const li = document.createElement('li'); li.className = 'chip'; li.textContent = l; $('dPats').appendChild(li); }
+  const r = loadRec(), d = r.days[String(DAILY.seed)], k = d && d.ranked;
+  if (k){
+    $('dScore').textContent = k.total.toLocaleString() + ' points';
+    $('dBest').textContent = dailyResultText(d).replace(/^./, c => c.toUpperCase()) + '.' + (d.practiceBest ? ` Practice best: ${d.practiceBest.toLocaleString()}.` : '');
+    badgeList($('dBadges'), k.badges, false);
+    $('dPlay').textContent = 'Practice today\'s level';
+  } else if (d && d.rankedStarted){
+    $('dScore').textContent = '0 points'; $('dBest').textContent = 'Your ranked try was left unfinished.'; badgeList($('dBadges'), [], false);
+    $('dPlay').textContent = 'Practice today\'s level';
+  } else {
+    $('dScore').textContent = 'Waiting'; $('dBest').textContent = 'Only your first run of the day ranks. Make it count.'; badgeList($('dBadges'), [], false);
+    $('dPlay').textContent = 'Play your ranked try';
+  }
+  const doneToday = !!(k || (d && d.rankedStarted));
+  $('dWatch').disabled = !doneToday;
+  $('dWatch').textContent = doneToday ? 'Watch the computer try it' : 'Watch the computer (after your ranked try)';
+  $('dShare').hidden = !k;
+  const rn = renown(r), st = streaks(r);
+  $('pfTitle').textContent = titleFor(rn);
+  $('pfRenown').textContent = rn.toLocaleString() + ' renown';
+  $('pfStreak').textContent = st.played ? `${st.played}-day streak` + (st.wins ? ` · ${st.wins} first-try win${st.wins === 1 ? '' : 's'} in a row` : '') : 'No streak yet';
+}
+function tickDaily(){
+  const now = new Date(), next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const s = Math.max(0, Math.floor((next - now)/1000));
+  $('dNext').textContent = `${Math.floor(s/3600)}h ${String(Math.floor(s/60)%60).padStart(2,'0')}m`;
+  // a new day: build the new level unless one is being played right now
+  if (dayInfo().seed !== DAILY.seed && state === 'closed'){ buildDaily(); renderDaily(); }
+}
+renderDaily(); tickDaily(); setInterval(tickDaily, 1000);
+const botBtn = $('botBtn');
+botBtn.addEventListener('click', () => {
+  bot.on = !bot.on; if (bot.on) bot.used = true;
+  if (bot.on && run.ranked && !run.done){ const r = loadRec(), d = today(r); d.ranked = { total: 0, parts: [['Handed to the computer', 0]], badges: [], won: false, time: Math.round(time), hits: stats.hits, left: Math.max(0, boss.hp/boss.max), reason: 'assisted' }; saveRec(r); run.done = true; }
+  if (!bot.on){ bot.mx = bot.my = 0; bot.ward = false; }
+  setPaused(false);
+});
+
+// ---------- input ----------
+const GAME_KEYS = ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','KeyW','KeyA','KeyS','KeyD','KeyJ','KeyK','ShiftLeft','ShiftRight','KeyC','KeyL','KeyE','KeyG','KeyQ'];
+window.addEventListener('keydown', e => {
+  if ((e.code === 'Escape' || e.code === 'KeyP') && !e.repeat && playing()){ setPaused(!paused); e.preventDefault(); return; }
+  if (paused) return;
+  if (GAME_KEYS.includes(e.code) && (state === 'play' || state === 'opening')){
+    if (!e.repeat){
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'KeyC') queued.roll = true;
+      if (e.code === 'KeyL' || e.code === 'KeyE') queued.lantern = true;
+      if (e.code === 'KeyG' || e.code === 'KeyQ') queued.garlic = true;
+    }
+    keys[e.code] = true; e.preventDefault();
+  }
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouse.down = false; wardBtn = false; releaseStick(); });
+
+function toLocal(e){ const r = cv.getBoundingClientRect(), p = rigInv((e.clientX - r.left)/r.width*cssW, (e.clientY - r.top)/r.height*cssH); return unproj(VX + p.x/camS, VY + p.y/camS); }
+cv.addEventListener('pointerdown', e => {
+  if (state === 'closed' || state === 'over' || state === 'won') return;
+  if (e.pointerType === 'mouse'){
+    const p = toLocal(e); mouse.x = p.x; mouse.y = p.y; mouse.active = true;
+    if (e.button === 2) queued.roll = true; else mouse.down = true;
+    e.preventDefault();
+  }
+});
+cv.addEventListener('pointermove', e => {
+  if (e.pointerType === 'mouse'){ const p = toLocal(e); mouse.x = p.x; mouse.y = p.y; mouse.active = true; }
+});
+const endTouch = e => { if (e.pointerType === 'mouse') mouse.down = false; };
+cv.addEventListener('pointerup', endTouch); cv.addEventListener('pointercancel', endTouch);
+window.addEventListener('pointerup', e => { if (e.pointerType === 'mouse') mouse.down = false; });
+cv.addEventListener('contextmenu', e => e.preventDefault());
+
+// any touch switches the page to the phone layout
+window.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'touch' && !isTouch()){ document.body.classList.add('touch'); resize(); }
+}, true);
+
+const stick = $('stick'), knob = $('knob');
+function moveStick(e){
+  const r = stick.getBoundingClientRect(), max = r.width*0.34;
+  let dx = e.clientX - (r.left + r.width/2), dy = e.clientY - (r.top + r.height/2);
+  const d = Math.hypot(dx, dy); if (d > max){ dx *= max/d; dy *= max/d; }
+  knob.style.transform = `translate(${dx}px, ${dy}px)`;
+  const m = Math.hypot(dx, dy)/max;
+  if (m < 0.12) stickV = { x: 0, y: 0 };
+  else {
+    const t = Math.min(1, (m - 0.12) / 0.48), power = 0.35 + 0.65*t; // 35% speed at the edge of the dead zone, full by ~60% of the throw
+    stickV = { x: dx/(m*max)*power, y: dy/(m*max)*power };
+  }
+}
+function releaseStick(){ stickId = null; stickV = { x: 0, y: 0 }; knob.style.transform = ''; stick.classList.remove('on'); }
+stick.addEventListener('pointerdown', e => { stickId = e.pointerId; mouse.active = false; stick.setPointerCapture(e.pointerId); stick.classList.add('on'); moveStick(e); e.preventDefault(); });
+stick.addEventListener('pointermove', e => { if (e.pointerId === stickId) moveStick(e); });
+for (const ev of ['pointerup','pointercancel','lostpointercapture']) stick.addEventListener(ev, e => { if (e.pointerId === stickId) releaseStick(); });
+stick.addEventListener('contextmenu', e => e.preventDefault());
+
+const pad = $('pad');
+function setLefty(on){ pad.classList.toggle('lefty', on); try { localStorage.setItem('cc-lefty', on ? '1' : '0'); } catch(e){} }
+try { setLefty(localStorage.getItem('cc-lefty') === '1'); } catch(e){}
+$('swapBtn').addEventListener('click', () => setLefty(!pad.classList.contains('lefty')));
+function syncCam(){ $('camBtn').textContent = 'Camera moves: ' + (camMove ? 'on' : 'off'); $('camBtn').setAttribute('aria-pressed', camMove ? 'true' : 'false'); }
+$('camBtn').addEventListener('click', () => { camMove = !camMove; try { localStorage.setItem('cc-cam', camMove ? '1' : '0'); } catch(e){} syncCam(); });
+syncCam();
+
+const wb = $('wardBtn');
+wb.addEventListener('pointerdown', e => { wardBtn = true; mouse.active = false; wb.setPointerCapture(e.pointerId); e.preventDefault(); });
+const wbUp = () => { wardBtn = false; };
+wb.addEventListener('pointerup', wbUp); wb.addEventListener('pointercancel', wbUp); wb.addEventListener('lostpointercapture', wbUp);
+wb.addEventListener('contextmenu', e => e.preventDefault());
+// one-tap buttons
+const rb = $('rollBtn'), lb = $('lanternBtn');
+const tapBtn = (el, key) => {
+  el.addEventListener('pointerdown', e => { queued[key] = true; mouse.active = false; e.preventDefault(); });
+  el.addEventListener('contextmenu', e => e.preventDefault());
+};
+tapBtn(rb, 'roll'); tapBtn(lb, 'lantern'); tapBtn($('garlicBtn'), 'garlic');
+
+// ---------- loop ----------
+let last = performance.now(), acc = 0;
+const STEP = 1/120;   // the game always advances in 1/120 s steps, whatever the screen's frame rate
+function frame(now){
+  const dt = Math.min(.1, (now - last)/1000); last = now;
+  if (!document.hidden){
+    if (ready && !paused){ acc += dt; let n = 0; while (acc >= STEP && n < 12){ update(STEP); acc -= STEP; n++; } if (n === 12) acc = 0; }
+    else acc = 0;
+    // watch mode replays on its own
+    if (bot.on && !paused && (state === 'over' || state === 'won')){ bot.restart -= dt; if (bot.restart <= 0) start(); }
+    draw(); hud();
+  }
+  requestAnimationFrame(frame);
+}
+reset();
+resize();
+loadImages().then(() => { ready = true; buildBg(); buildWalk(); });
+showLayer('menu');
+if (document.fonts && document.fonts.load) document.fonts.load('26px "Pirata One"').catch(()=>{});
+requestAnimationFrame(frame);
+})();
+</script>
