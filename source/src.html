@@ -96,6 +96,8 @@ body.in-game ::selection{background:transparent}
 .stick::after{content:"";position:absolute;inset:42px;border-radius:50%;border:1px dashed rgba(183,169,204,.35)}
 .knob{position:absolute;left:50%;top:50%;width:58px;height:58px;margin:-29px 0 0 -29px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#5a4a66,#2f2338);border:2px solid #6c5b78;box-shadow:0 4px 0 #0b070d;pointer-events:none;z-index:1}
 .stick.on .knob{border-color:var(--silver)}
+body.cinematic .pad,body.cinematic .hud{opacity:0;pointer-events:none;transition:opacity .35s}
+body.cinematic .pad *,body.cinematic .hud *{pointer-events:none!important}
 .pad.drag .stick{pointer-events:none;background:none;border:2px dashed rgba(183,169,204,.22)}
 .pad.drag .stick .knob{display:none}
 .pad.drag .stick::after{inset:0;border:0;display:grid;place-items:center;content:"drag anywhere";font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(236,228,214,.45);text-align:center}
@@ -466,7 +468,7 @@ const SLAB_T = 8, SLAB_HP = 40;          // a kicked-over pillar lasts this long
 const PERFECT_WIN = 0.153;               // seconds after raising the shield that a block counts as perfect (was 0.18)
 const OPEN_DAILY = 1.4;                  // Dracula's open window after each pattern
 // difficulty: tuned with the computer player at four skill levels across many days (skill2.js)
-const DIFF = { shot: 1.3, gap: 0.2, red: 22, purple: 30, snipe: 35, beam: 41, bossHp: 1.4, shard: 5 };
+const DIFF = { shot: 1.25, gap: 0.22, red: 21, purple: 28, snipe: 33, beam: 39, bossHp: 1.33, shard: 5 };   // 2026-11-03: about 5% easier than the first tuning
 const OIL_MOVE = 2.5, OIL_LIT = 7, OIL_REFLECT = 6, OIL_PERFECT = 10, OIL_SLOW_T = 3, OIL_SLOW = 0.7;
 // 1 · ward is a finite resource
 const WARD_DRAIN = 15;        // % of the meter lost per second while the shield is held
@@ -824,6 +826,7 @@ function update(rdt){
   let dt = rdt;
   if (slowT > 0){ slowT -= rdt; dt = rdt*SLOW_SCALE; }
   updateFx(dt);
+  if ((state === 'ending' || state === 'defeat') && freezeT > 0){ freezeT -= rdt; return; }
   if (state === 'ending'){ endT += rdt; stepEnding(rdt); if (endT >= END_T) win(); return; }
   if (state === 'defeat'){ defT += rdt; stepDefeat(rdt); if (defT >= DEF_T) lose(); return; }
   if (state !== 'play') return;
@@ -1101,12 +1104,14 @@ function clearField(){
   burst(boss.x,boss.y,C.blood,40,220); shake = .5;
 }
 // ---------- endings: Dracula's last moments play out before the result screen, a different one each day ----------
-const END_T = 5.4, ENDINGS = ['dawn', 'bats', 'stone'];
+// the deciding blow: the world freezes for a beat under a flash, then the scene plays
+const FREEZE_T = 0.3; let freezeT = 0, flashCol = '255,255,255';
+const END_T = 5.0, ENDINGS = ['dawn', 'bats', 'stone'];
 let endT = 0, endKind = null, endFx = [], endFlags = {};
 function finishFight(){
   clearField();
   scoreThisRun(true);            // score now, so leaving during the ending can't lose a win
-  state = 'ending'; endT = 0; endFx = []; endFlags = {};
+  state = 'ending'; endT = 0; endFx = []; endFlags = {}; freezeT = FREEZE_T; flashCol = '255,246,225';
   endKind = ENDINGS[(DAILY.num % ENDINGS.length + ENDINGS.length) % ENDINGS.length];
   boss.fury = false; boss.open = 0; boss.atk = null; hero.ward = false; laser = null;
   shake = .4; buzz(90);
@@ -1301,11 +1306,11 @@ function badgeList(el, keys, fresh){
   for (const k of keys){ const li = document.createElement('li'); li.className = 'badge' + (fresh ? ' new' : ''); li.textContent = BADGES[k] || k; el.appendChild(li); }
 }
 // ---------- defeat: Dracula's victory, a different one each day ----------
-const DEF_T = 4.2, DEFEATS = ['feast', 'bats', 'laugh'];
+const DEF_T = 3.8, DEFEATS = ['feast', 'bats', 'laugh'];
 let defT = 0, defKind = null;
 function startDefeat(){
   scoreThisRun(false);           // score now, so leaving during the scene can't change the result
-  state = 'defeat'; defT = 0; endFx = []; endFlags = {};
+  state = 'defeat'; defT = 0; endFx = []; endFlags = {}; freezeT = FREEZE_T; flashCol = '255,40,70';
   defKind = DEFEATS[((DAILY.num + 1) % DEFEATS.length + DEFEATS.length) % DEFEATS.length];
   boss.atk = null; laser = null; hero.ward = false; hero.roll = null; light = null;
   for (const b of bullets) burst(b.x, b.y, b.kind === 'shadow' ? C.shadow : C.blood, 1, 50);
@@ -1833,10 +1838,11 @@ function camTarget(){
   const blood = boss.fury;
   if (blood) T.roll = Math.sin(time*.55)*0.012;
   if (slowT > 0){ T.z = 1.07; T.focus = 1; T.rate = 5; }
-  if (state === 'won' || state === 'ending' || state === 'defeat'){ T.ax = B.x; T.ay = B.y; T.z = 1.12; T.px = (cssW/2 - B.x)*0.2; T.focus = .8; T.lb = .06; T.rate = 1.2; }
+  const cine = state === 'won' || state === 'ending' || state === 'defeat';
+  if (cine){ T.ax = B.x; T.ay = B.y; T.z = 1.22; T.px = (cssW/2 - B.x)*0.9; T.py = (cssH*0.44 - B.y)*0.9; T.focus = .8; T.lb = .06; T.rate = 1.6; }
   // a jolt on big hits
   if (shake > 0) T.z += Math.min(.3, shake)*0.08;
-  const lim = cssW*0.07; T.px = Math.max(-lim, Math.min(lim, T.px)); T.py = Math.max(-lim, Math.min(lim, T.py));
+  const lim = cine ? Math.max(cssW, cssH)*0.3 : cssW*0.07; T.px = Math.max(-lim, Math.min(lim, T.px)); T.py = Math.max(-lim, Math.min(lim, T.py));
   return T;
 }
 function updateRig(dt){
@@ -2010,6 +2016,7 @@ function draw(){
     }
   } finally { rigM = null; }
   drawNear(sc, rdt);
+  if (freezeT > 0 && (state === 'ending' || state === 'defeat')){ sc.setTransform(dpr, 0, 0, dpr, 0, 0); sc.fillStyle = `rgba(${flashCol},${(freezeT/FREEZE_T)*(reduceMotion ? .2 : .55)})`; sc.fillRect(0, 0, cssW, cssH); }
 }
 
 // draw into a flat layer with the camera transform, run fn, and hand ctx back to the screen
@@ -2124,6 +2131,7 @@ function drawArena(){
 const $ = id => document.getElementById(id);
 let lastHud = '';
 function hud(){
+  document.body.classList.toggle('cinematic', state === 'ending' || state === 'defeat');
   if (!hero) return;
   $('bossBar').style.width = Math.max(0, boss.hp/boss.max*100) + '%';
   $('stBar').style.width = hero.st + '%';
@@ -2192,6 +2200,8 @@ function showOverlay(t, p, btn, res, wasRanked){
   $('ovShare').hidden = !(d && d.ranked);
   $('rShareTxt').hidden = true;
   showLayer('result');
+  // a frantic last tap (or the tap that skipped the scene) must not land on a result button
+  const rl = $('result'); rl.style.pointerEvents = 'none'; clearTimeout(showOverlay.t); showOverlay.t = setTimeout(() => { rl.style.pointerEvents = ''; }, 500);
 }
 function start(){
   seedFight(); reset(); bot.used = bot.on; paused = false; showLayer(null);
@@ -2306,7 +2316,9 @@ window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; m
 
 function toLocal(e){ const r = cv.getBoundingClientRect(), p = rigInv((e.clientX - r.left)/r.width*cssW, (e.clientY - r.top)/r.height*cssH); return unproj(VX + p.x/camS, VY + p.y/camS); }
 cv.addEventListener('pointerdown', e => {
-  if (state === 'closed' || state === 'over' || state === 'won') return;
+  if (state === 'ending' && endT > 1){ endT = END_T; return; }
+  if (state === 'defeat' && defT > 1){ defT = DEF_T; return; }
+  if (state === 'closed' || state === 'over' || state === 'won' || state === 'ending' || state === 'defeat') return;
   if (e.pointerType === 'mouse'){
     const p = toLocal(e); mouse.x = p.x; mouse.y = p.y; mouse.active = true;
     if (e.button === 2) queued.roll = true; else mouse.down = true;
