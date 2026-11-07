@@ -369,6 +369,8 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--bone-
         <button class="quiet" id="swapBtn" type="button">Swap control sides</button>
         <button class="quiet" id="camBtn" type="button" aria-pressed="true">Camera moves: on</button>
         <button class="quiet" id="ctrlBtn" type="button">Controls: drag</button>
+        <button class="quiet" id="musicBtn" type="button">Music: on</button>
+        <button class="quiet" id="sfxBtn" type="button">Sound effects: on</button>
         <button class="quiet" id="pMenu" type="button">Main menu</button>
       </div>
       <p class="hint"><kbd>Esc</kbd> or <kbd>P</kbd> pauses on a keyboard</p>
@@ -671,7 +673,7 @@ const FAMILIES = {
     return { label: 'Window beams', dur: cyc*3, look: 2,
       step(a,dt){ const ci = Math.floor(a.t/cyc), c = a.t % cyc;
         if (ci !== a.ci){ a.ci = ci; a.ang = toHero(); a.rung = false; }
-        if (c < .75) laser = { ang: a.ang, k: c/.75 };
+        if (c < .75){ laser = { ang: a.ang, k: c/.75 }; SND.beamCharge(c/.75); }
         else { laser = null; if (!a.rung){ a.rung = true; ring(rn, 70, grng()); }
           if (c < 1.2) every(a,'e',.03,dt,()=> fire(boss.x,boss.y,a.ang,290,'shadow',{ r:6, beam:true })); } },
       end(){ laser = null; } }; },
@@ -761,11 +763,130 @@ function addLantern(n){
   const was = hero.lantern; hero.lantern = Math.min(100, hero.lantern + n);
   if (was < 100 && hero.lantern >= 100) say(hero.x, hero.y - 44, 'lantern lit', C.gold);
 }
+
+// ---------- sound: everything is synthesized with Web Audio, no files ----------
+// buses: Master <- { Music (with a separate duck stage), SFX }, a gentle limiter on the master.
+// The context starts on the first touch (phones only allow audio after a gesture).
+const SND = (() => {
+  let ac = null, master, sfxBus, musicBus, duck, noiseBuf = null;
+  let musicOn = true, sfxOn = true, musicT = 0, step = 0, playing = false, intensity = 0;
+  const last = {};   // per-sound rate limits
+  try { musicOn = localStorage.getItem('cc-music') !== '0'; sfxOn = localStorage.getItem('cc-sfx') !== '0'; } catch(e){}
+  function init(){
+    if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    ac = new AC();
+    const lim = ac.createDynamicsCompressor(); lim.threshold.value = -8; lim.knee.value = 6; lim.ratio.value = 12; lim.attack.value = .003; lim.release.value = .2;
+    master = ac.createGain(); master.gain.value = .8; master.connect(lim); lim.connect(ac.destination);
+    sfxBus = ac.createGain(); sfxBus.gain.value = sfxOn ? 1 : 0; sfxBus.connect(master);
+    duck = ac.createGain(); duck.gain.value = 1; duck.connect(master);
+    musicBus = ac.createGain(); musicBus.gain.value = musicOn ? .32 : 0; musicBus.connect(duck);
+    noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random()*2 - 1;
+  }
+  const ok = (name, gap) => { if (!ac || !sfxOn) return false; const t = ac.currentTime; if (last[name] && t - last[name] < gap) return false; last[name] = t; return true; };
+  // building blocks
+  function tone(f, dur, { type = 'sine', vol = .3, f2 = null, at = 0, attack = .004, bus = sfxBus, q = null, lp = null } = {}){
+    const t = ac.currentTime + at, o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(Math.max(20, f2), t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    let out = g;
+    if (lp){ const fl = ac.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = lp; if (q) fl.Q.value = q; g.connect(fl); out = fl; }
+    o.connect(g); out.connect(bus); o.start(t); o.stop(t + dur + .05);
+  }
+  function noise(dur, { vol = .3, type = 'bandpass', f = 1200, f2 = null, q = 1, at = 0, attack = .003, bus = sfxBus } = {}){
+    const t = ac.currentTime + at, src = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = noiseBuf; src.loop = true; fl.type = type; fl.frequency.setValueAtTime(f, t); if (f2) fl.frequency.exponentialRampToValueAtTime(f2, t + dur); fl.Q.value = q;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(fl); fl.connect(g); g.connect(bus); src.start(t, Math.random()*.5); src.stop(t + dur + .05);
+  }
+  const vary = (x, p = .06) => x*(1 + (Math.random()*2 - 1)*p);   // small pitch variation so repeats don't sound robotic
+  function duckMusic(depth = .35, hold = .35){
+    if (!ac) return; const t = ac.currentTime;
+    duck.gain.cancelScheduledValues(t); duck.gain.setTargetAtTime(depth, t, .02); duck.gain.setTargetAtTime(1, t + hold, .25);
+  }
+  // ---- music: a slow gothic organ loop; a harpsichord-like arpeggio joins when Dracula is furious
+  const BPM = 84, BEAT = 60/BPM;
+  const PROG = [[50, 53, 57], [46, 50, 53], [43, 46, 50], [45, 49, 52]];   // Dm  Bb  Gm  A (MIDI notes)
+  const hz = m => 440*Math.pow(2, (m - 69)/12);
+  function organ(m, at, dur, vol){
+    for (const [mul, det, v] of [[1, 0, 1], [2, 4, .45], [.5, -3, .5]]){
+      const t = at, o = ac.createOscillator(), g = ac.createGain(), fl = ac.createBiquadFilter();
+      o.type = 'sawtooth'; o.frequency.value = hz(m)*mul; o.detune.value = det;
+      fl.type = 'lowpass'; fl.frequency.value = 1100; fl.Q.value = .4;
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol*v, t + .08); g.gain.setValueAtTime(vol*v, t + dur - .15); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+      o.connect(fl); fl.connect(g); g.connect(musicBus); o.start(t); o.stop(t + dur + .05);
+    }
+  }
+  function pluck(m, at, vol){
+    const o = ac.createOscillator(), g = ac.createGain(), fl = ac.createBiquadFilter();
+    o.type = 'square'; o.frequency.value = hz(m); fl.type = 'lowpass'; fl.frequency.setValueAtTime(3200, at); fl.frequency.exponentialRampToValueAtTime(500, at + .25);
+    g.gain.setValueAtTime(vol, at); g.gain.exponentialRampToValueAtTime(0.0001, at + .3);
+    o.connect(fl); fl.connect(g); g.connect(musicBus); o.start(at); o.stop(at + .35);
+  }
+  function scheduleMusic(){
+    // look ahead and queue notes on the beat grid (scheduled on audio time, not frame time)
+    if (!ac || !playing) return;
+    if (musicT < ac.currentTime) musicT = ac.currentTime + .05;
+    while (musicT < ac.currentTime + .25){
+      const bar = Math.floor(step/8) % PROG.length, chord = PROG[bar], beatInBar = step % 8;
+      if (beatInBar === 0){ for (const m of chord) organ(m, musicT, BEAT*4, .05); organ(chord[0] - 12, musicT, BEAT*4, .07); }
+      if (intensity > .5){ const arp = [chord[0], chord[1], chord[2], chord[1] + 12]; pluck(arp[step % 4] + 12, musicT, .045); }
+      else if (beatInBar % 2 === 0) pluck(chord[(beatInBar/2) % 3] + 12, musicT, .022);
+      musicT += BEAT/2; step++;
+    }
+  }
+  return {
+    init, ready: () => !!ac, _out: () => master, _ac: () => ac,
+    get musicOn(){ return musicOn; }, get sfxOn(){ return sfxOn; },
+    setMusic(v){ musicOn = v; try { localStorage.setItem('cc-music', v ? '1' : '0'); } catch(e){} if (ac) musicBus.gain.setTargetAtTime(v ? .32 : 0, ac.currentTime, .1); },
+    setSfx(v){ sfxOn = v; try { localStorage.setItem('cc-sfx', v ? '1' : '0'); } catch(e){} if (ac) sfxBus.gain.setTargetAtTime(v ? 1 : 0, ac.currentTime, .05); },
+    music(on){ playing = on; if (on && ac){ musicT = ac.currentTime + .05; step = 0; } },
+    tick(fury){ intensity = fury ? 1 : 0; scheduleMusic(); },
+    // ---- effects
+    block(){ if (!ok('block', .03)) return; noise(.12, { vol: .32, f: vary(2600), q: 6 }); tone(vary(880), .18, { type: 'triangle', vol: .17 }); },
+    perfect(chain){ if (!ok('perfect', .03)) return; const f = 1046*Math.pow(1.122, Math.min(chain, 3) - 1); tone(f, .45, { vol: .2 }); tone(f*1.5, .4, { vol: .1, at: .01 }); tone(f*2, .25, { vol: .05 }); },
+    triple(){ if (!ok('triple', .1)) return; [1318, 1568, 1976].forEach((f, i) => tone(f, .3, { vol: .12, at: i*.05 })); },
+    graze(){ if (!ok('graze', .07)) return; tone(vary(3200, .1), .04, { type: 'triangle', vol: .05 }); },
+    hurt(dmg){ if (!ok('hurt', .05)) return; const k = Math.min(1.5, dmg/25); tone(170, .32, { type: 'sine', vol: .35*k, f2: 55 }); noise(.22, { vol: .2*k, type: 'lowpass', f: 900, f2: 200 }); if (dmg >= 30){ tone(95, .5, { type: 'sawtooth', vol: .12, f2: 40, lp: 600 }); } duckMusic(dmg >= 30 ? .25 : .5, .3); },
+    bossHit(perfect){ if (!ok('bossHit', .06)) return; tone(vary(perfect ? 150 : 120), .3, { type: 'sawtooth', vol: perfect ? .2 : .14, f2: 70, lp: 900, q: 4 }); noise(.08, { vol: .1, f: 700, q: 2 }); },
+    swat(){ if (!ok('swat', .12)) return; noise(.07, { vol: .08, f: 1800, q: 3 }); },
+    roll(){ if (!ok('roll', .1)) return; noise(.28, { vol: .32, f: 500, f2: 2400, q: 1.2 }); },
+    nightStep(){ if (!ok('night', .3)) return; tone(523, .9, { vol: .12, f2: 392 }); tone(784, .9, { vol: .07, f2: 587 }); },
+    garlic(){ if (!ok('garlic', .2)) return; noise(.18, { vol: .22, f: 1500, q: .8 }); noise(.5, { vol: .08, type: 'highpass', f: 3000, at: .35 }); },
+    shard(){ if (!ok('shard', .05)) return; tone(vary(1760, .03), .16, { vol: .1 }); tone(2637, .12, { vol: .05, at: .05 }); },
+    lantern(on){ if (!ok('lantern', .1)) return; tone(on ? 660 : 440, .12, { type: 'triangle', vol: .08, f2: on ? 990 : 300 }); noise(.06, { vol: .06, f: 4000, q: 2 }); },
+    flare(){ if (!ok('flare', .3)) return; [523, 659, 784, 1046].forEach((f, i) => tone(f, .9, { vol: .08, at: i*.03 })); noise(.6, { vol: .08, type: 'highpass', f: 2500, f2: 6000 }); },
+    pillar(){ if (!ok('pillar', .08)) return; noise(.14, { vol: .16, type: 'lowpass', f: 1200 }); },
+    crumble(){ if (!ok('crumble', .2)) return; noise(.7, { vol: .3, type: 'lowpass', f: 900, f2: 120 }); tone(70, .5, { vol: .2, f2: 40 }); },
+    campWarn(){ if (!ok('camp', 1)) return; tone(880, .12, { type: 'square', vol: .04, lp: 2000 }); tone(880, .12, { type: 'square', vol: .04, lp: 2000, at: .18 }); },
+    snipe(){ if (!ok('snipe', .2)) return; tone(1400, .18, { type: 'sawtooth', vol: .07, f2: 500, lp: 3000 }); },
+    attack(kind){ if (!ok('attack', .25)) return; noise(.35, { vol: .16, f: kind === 'beam' ? 400 : 900, f2: kind === 'beam' ? 1600 : 400, q: 1.5 }); },
+    beamCharge(k){ if (!ok('beamc', .14)) return; tone(220 + k*500, .14, { type: 'sawtooth', vol: .035, lp: 1400 }); },
+    thunder(){ if (!ok('thunder', .4)) return; const at = .15 + Math.random()*.4; noise(1.8, { vol: .32, type: 'lowpass', f: 420, f2: 70, at, attack: .02 }); noise(.25, { vol: .12, type: 'lowpass', f: 1800, f2: 300, at }); },
+    fury(){ if (!ac) return; tone(73.4, 1.6, { type: 'sawtooth', vol: .14, lp: 500, attack: .3 }); tone(110, 1.6, { type: 'sawtooth', vol: .1, lp: 600, attack: .3 }); },
+    open(){ if (!ok('open', .5)) return; noise(.9, { vol: .1, f: 300, f2: 900, q: 6 }); tone(62, .8, { vol: .15, f2: 50 }); },
+    tap(){ if (!ok('tap', .05)) return; tone(1200, .03, { type: 'triangle', vol: .04 }); },
+    // endings and defeats
+    shatter(){ if (!ac) return; for (let i = 0; i < 7; i++) tone(vary(2400, .35), .5, { type: 'triangle', vol: .06, at: i*.035 }); noise(.6, { vol: .22, type: 'highpass', f: 2500 }); },
+    dawn(){ if (!ac) return; [62, 66, 69, 74].forEach((m, i) => tone(hz(m), 3.2, { vol: .07, at: .4 + i*.12, attack: .6 })); },
+    burn(){ if (!ok('burn', .1)) return; noise(.4, { vol: .07, f: 700, q: .7 }); },
+    bats(){ if (!ac) return; for (let i = 0; i < 12; i++) noise(.12, { vol: .24, f: vary(1600, .3), q: 3, at: i*.06 + Math.random()*.03 }); },
+    stone(){ if (!ac) return; noise(1.1, { vol: .3, type: 'lowpass', f: 800, f2: 90 }); tone(55, .9, { vol: .22, f2: 35 }); },
+    beamShine(){ if (!ac) return; tone(1568, 1.6, { vol: .06, attack: .2 }); tone(2093, 1.6, { vol: .04, attack: .3 }); },
+    feast(){ if (!ac) return; [62, 61, 58, 55].forEach((m, i) => tone(hz(m), .7, { type: 'sawtooth', vol: .07, lp: 900, at: i*.35 })); },
+    laugh(){ if (!ok('laugh', .3)) return; for (let i = 0; i < 3; i++) tone(vary(150, .08), .14, { type: 'sawtooth', vol: .12, lp: 700, q: 6, at: i*.13, f2: 110 }); },
+    win(){ if (!ac) return; [62, 66, 69].forEach((m, i) => tone(hz(m + 12), 1.2, { vol: .07, at: i*.08 })); },
+    lose(){ if (!ac) return; tone(hz(50), 1.4, { type: 'sawtooth', vol: .1, lp: 700, f2: hz(45) }); }
+  };
+})();
+// wake the sound engine on the first touch anywhere
+['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, () => SND.init(), { passive: true }));
 function tryRoll(mx, my){
   if (hero.roll || hero.rollCd > 0) return;
   let l = Math.hypot(mx, my), dx = mx, dy = my;
   if (l < 0.1){ dx = hero.lastDir.x; dy = hero.lastDir.y; l = 1; }
-  hero.roll = { t: ROLL_T, dx: dx/l, dy: dy/l, dodged: false };
+  hero.roll = { t: ROLL_T, dx: dx/l, dy: dy/l, dodged: false }; SND.roll();
   hero.rollCd = ROLL_CD + ROLL_T; hero.ward = false; hero.trail = [];
 }
 function hitRadius(b){
@@ -776,19 +897,19 @@ const rollSafe = () => hero.roll && (ROLL_T - hero.roll.t) < ROLL_IFRAME;
 function perfectDodge(){
   hero.roll.dodged = true; slowT = SLOW_T; stats.dodges++; hero.inv = Math.max(hero.inv, 0.3);
   addLantern(DODGE_GAIN); buzz(20);
-  say(hero.x, hero.y - 40, 'night step', '#f1e6ff');
+  say(hero.x, hero.y - 40, 'night step', '#f1e6ff'); SND.nightStep();
 }
 // the lantern is a switch: on reveals everything but burns oil and makes Dracula 25% faster
 function toggleLantern(){
-  if (hero.lit){ hero.lit = false; hero.light = Math.min(hero.light, LIGHT_OFF_CAP); say(hero.x, hero.y - 40, 'lantern off', '#cfc6dd'); return; }
+  if (hero.lit){ hero.lit = false; hero.light = Math.min(hero.light, LIGHT_OFF_CAP); say(hero.x, hero.y - 40, 'lantern off', '#cfc6dd'); SND.lantern(false); return; }
   if (hero.oil < 10){ say(hero.x, hero.y - 40, 'no oil', '#ffffff'); return; }
   hero.lit = true; stats.everLit = true;
   if (hero.lantern >= 100){
     // lit with a full charge from grazing: the flame flares and sweeps the room
     hero.lantern = 0; stats.lanterns++;
     light = { x: hero.x, y: hero.y - 6, r: 0 }; shake = .2; buzz(30);
-    say(hero.x, hero.y - 44, 'lantern burst', C.gold);
-  } else say(hero.x, hero.y - 40, 'lantern on', C.gold);
+    say(hero.x, hero.y - 44, 'lantern burst', C.gold); SND.flare();
+  } else { say(hero.x, hero.y - 40, 'lantern on', C.gold); SND.lantern(true); }
 }
 // how hard each kind of hit lands, out of 100 health
 function shotDamage(b){
@@ -799,7 +920,7 @@ function shotDamage(b){
 }
 function hurtHero(cause, dmg = 10){
   hero.hp = Math.max(0, hero.hp - dmg);
-  say(hero.x, hero.y - 50, '-' + dmg, dmg >= 25 ? '#ff6b7a' : '#ffb3a6');
+  say(hero.x, hero.y - 50, '-' + dmg, dmg >= 25 ? '#ff6b7a' : '#ffb3a6'); SND.hurt(dmg);
   if (hero.garlicT > 0){ hero.garlicT = 0; say(hero.x, hero.y - 50, 'garlic dropped', '#ffb3a6'); } stats.hits++; buzz(dmg >= 25 ? 110 : 55); hero.inv = 1.1; shake = dmg >= 25 ? .5 : .3; hero.chain = 0;
   burst(hero.x, hero.y, C.blood, 18, 160);
   for (const o of bullets) if (o.own === 'boss' && Math.hypot(o.x-hero.x, o.y-hero.y) < 55) o.dead = true;
@@ -811,7 +932,7 @@ function hurtHero(cause, dmg = 10){
 function startGarlic(){
   if (hero.garlic <= 0){ say(hero.x, hero.y - 40, 'no garlic left', '#ffffff'); return; }
   if (hero.garlicT > 0 || hero.roll) return;
-  hero.garlic--; stats.garlic++;
+  hero.garlic--; stats.garlic++; SND.garlic();
   hero.garlicT = GARLIC_CAST; hero.ward = false;
 }
 
@@ -901,12 +1022,13 @@ function update(rdt){
   const camp = hero.camp;
   if (Math.hypot(hero.x-camp.x, hero.y-camp.y) > 40){ camp.x = hero.x; camp.y = hero.y; camp.t = 0; camp.cd = 0; }
   else if (state === 'play') camp.t += dt;
+  if (camp.t > CAMP_WARN && state === 'play') SND.campWarn();
   if (camp.t > CAMP_WARN + CAMP_ARM){
     camp.cd -= dt;
     if (camp.cd <= 0){
       camp.cd = 0.85;
       const a = toHero();
-      for (const o of [-0.07, 0, 0.07]) fire(boss.x, boss.y, a + o, 165, 'shadow', { beam: true, snipe: true });
+      for (const o of [-0.07, 0, 0.07]) fire(boss.x, boss.y, a + o, 165, 'shadow', { beam: true, snipe: true }); SND.snipe();
     }
   }
 
@@ -933,7 +1055,7 @@ function update(rdt){
     const dx = hero.x - p.x, dy = hero.y - 4 - p.y, d = Math.hypot(dx, dy) || 1;
     const pull = d < 140 ? 260 : 60; p.x += dx/d*pull*dt; p.y += dy/d*pull*dt;
     if (d < 14){
-      pickups.splice(i, 1); stats.shards++;
+      pickups.splice(i, 1); stats.shards++; SND.shard();
       if (hero.hp < hero.maxHp){ const h = Math.min(DIFF.shard, hero.maxHp - hero.hp); hero.hp += h; say(hero.x, hero.y - 46, '+' + h, '#ff8fa0'); }
       continue;
     }
@@ -945,7 +1067,7 @@ function update(rdt){
   for (const p of PILLARS){
     if (!p.fallen) continue;
     p.fallen.t -= dt;
-    if (p.fallen.t <= 0 || p.fallen.hp <= 0){ const r = blockRect(p); burst((r.x0+r.x1)/2, (r.y0+r.y1)/2, '#6f716a', 24, 120); p.fallen = null; p.hp = 0; }
+    if (p.fallen.t <= 0 || p.fallen.hp <= 0){ const r = blockRect(p); burst((r.x0+r.x1)/2, (r.y0+r.y1)/2, '#6f716a', 24, 120); p.fallen = null; p.hp = 0; SND.crumble(); }
   }
 
   // lantern burst: a ring of light sweeps out and turns every purple shot it touches red
@@ -978,14 +1100,14 @@ function update(rdt){
     if (boss.atk){
       // below 40% health Dracula fires everything 30% faster
       const fury = boss.hp/boss.max < 0.4;
-      if (fury && !boss.fury){ boss.fury = true; say(boss.x, boss.y - 60, 'Dracula is furious', '#ff6b7a'); shake = .3; }
+      if (fury && !boss.fury){ boss.fury = true; say(boss.x, boss.y - 60, 'Dracula is furious', '#ff6b7a'); shake = .3; SND.fury(); }
       const adt = (fury ? dt*1.3 : dt) * (hero.lit ? LIT_AGGRO : 1);
       const a = boss.atk; a.t += adt; ATK[a.id].step(a, adt);
       if (a.t >= ATK[a.id].dur){ ATK[a.id].end && ATK[a.id].end(); boss.open = OPEN_DAILY; boss.atk = null; boss.gap = DIFF.gap; }
     } else if (!banner) {
       boss.gap -= dt;
       if (boss.fury) boss.gap -= dt*0.5;
-      if (boss.gap <= 0){ const id = ph.atks[boss.ai % ph.atks.length]; boss.ai++; boss.atk = { id, t: 0 }; }
+      if (boss.gap <= 0){ const id = ph.atks[boss.ai % ph.atks.length]; boss.ai++; boss.atk = { id, t: 0 }; SND.attack(DAILY.labels[ph.atks.indexOf(id)] === 'Window beams' ? 'beam' : ''); }
     }
   }
 
@@ -1033,7 +1155,7 @@ function update(rdt){
         const r = blockRect(p);
         if (inRect(b.x, b.y, r)){
           blocked = true; p.hitT = .12;
-          if (p.fallen) p.fallen.hp--; else p.hp--;
+          if (p.fallen) p.fallen.hp--; else p.hp--; SND.pillar();
           burst(b.x, b.y, '#8d8f86', 4, 70);
           if (!p.fallen && p.hp <= 0){ burst((p.x0+p.x1)/2, (p.y0+p.y1)/2, '#6f716a', 26, 120); say((p.x0+p.x1)/2, p.y0-6, 'pillar crumbled', '#ffffff'); shake = .25; }
           break;
@@ -1052,9 +1174,9 @@ function update(rdt){
           b.vx = Math.cos(hero.aim)*s; b.vy = Math.sin(hero.aim)*s;
           stats.parries++;
           if (perfect){
-            buzz(12); stats.perfects++; hero.st = Math.min(100, hero.st + WARD_PERFECT); addLantern(PERFECT_GAIN); burst(b.x,b.y,C.gold,10,140);
+            buzz(12); stats.perfects++; SND.perfect(hero.chain + 1); hero.st = Math.min(100, hero.st + WARD_PERFECT); addLantern(PERFECT_GAIN); burst(b.x,b.y,C.gold,10,140);
             hero.chain++;
-            if (hero.chain >= 3){
+            if (hero.chain >= 3){ SND.triple();
               // third perfect in a row: the shot splits into three
               hero.chain = 0; stats.triples++;
               for (const o of [-0.32, 0.32]){
@@ -1078,7 +1200,7 @@ function update(rdt){
         }
       } else if (b.kind === 'shadow' && !b.grazed && hero.inv <= 0 && state === 'play' && d < b.r + 12){
         // graze: a purple shot brushed past without hitting the core
-        b.grazed = true; stats.grazes++; addLantern(GRAZE_GAIN);
+        b.grazed = true; stats.grazes++; addLantern(GRAZE_GAIN); SND.graze();
         parts.push({ x: hero.x + dx*.5, y: hero.y + dy*.5, vx: 0, vy: -30, life: .3, max: .3, col: C.gold });
       }
     } else {
@@ -1086,12 +1208,12 @@ function update(rdt){
         bullets.splice(i,1);
         if (boss.open <= 0){
           // outside his open window Dracula swats reflected shots away
-          stats.blocked++; burst(b.x, b.y, '#cfc6dd', 6, 110);
+          stats.blocked++; burst(b.x, b.y, '#cfc6dd', 6, 110); SND.swat();
           if (boss.blockT <= 0){ boss.blockT = .5; say(boss.x + (Math.random()*30-15), boss.y-44, 'blocked', '#cfc6dd'); }
           continue;
         }
         const dmg = b.dmg*2; stats.openHits++;
-        boss.hp -= dmg; boss.flash = .08; boss.hitT = .22;
+        boss.hp -= dmg; boss.flash = .08; boss.hitT = .22; SND.bossHit(b.perfect);
         burst(b.x,b.y,b.perfect?C.gold:C.silver,8,120);
         say(boss.x + (Math.random()*30-15), boss.y-44, '-'+dmg, b.perfect?C.gold:'#ffffff');
         if (boss.hp <= 0){ finishFight(); return; }
@@ -1122,6 +1244,7 @@ function finishFight(){
   state = 'ending'; endT = 0; endFx = []; endFlags = {}; freezeT = FREEZE_T; flashCol = '255,246,225';
   endKind = ENDINGS[(DAILY.num % ENDINGS.length + ENDINGS.length) % ENDINGS.length];
   boss.fury = false; boss.open = 0; boss.atk = null; hero.ward = false; laser = null;
+  SND.music(false); SND.win(); if (endKind === 'stone') SND.beamShine();
   shake = .4; buzz(90);
 }
 function dracBody(){ const D = proj(boss.x, boss.y), s = D.s; return { x: D.x, feet: D.y + 70*s, top: D.y - 80*s, mid: D.y - 5*s, s }; }
@@ -1130,22 +1253,23 @@ function stepEnding(dt){
   const B = dracBody(), t = endT, R = (a, b) => a + Math.random()*(b - a);
   if (endKind === 'dawn'){
     if (t > .75 && !endFlags.shatter){
-      endFlags.shatter = true; shake = .55; buzz(60);
+      endFlags.shatter = true; shake = .55; buzz(60); SND.shatter(); SND.dawn();
       const W = proj(180, -179);
       for (let i = 0; i < 70; i++){ const a = Math.random()*7, r = Math.random()*70; endPart({ type: 'shard', x: W.x + Math.cos(a)*r, y: W.y + Math.sin(a)*r*1.3, vx: Math.cos(a)*R(40, 220), vy: R(-140, 40), g: 520, life: R(1.2, 2.2), max: 2.2, size: R(3, 8), rot: Math.random()*7, vr: R(-9, 9), col: ['#ff3b4e','#ff7a59','#c21d3a','#ffd1a1'][i % 4] }); }
     }
     // fire climbs him from the feet up: ~70 tongues of flame a second
+    if (t > 1.1 && t < 3.4) SND.burn();
     if (t > 1.1 && t < 3.7 && Math.random() < 70*dt){ const k = Math.min(1, (t - 1.1)/1.6), y = B.feet - R(0, (B.feet - B.top)*k); endPart({ type: 'flame', x: B.x + R(-28, 28)*B.s, y, vx: R(-10, 10), vy: R(-110, -50), life: R(.4, .8), max: .8, size: R(2.5, 5.5)*B.s }); }
     if (t > 3.2 && t < 5.2 && Math.random() < 40*dt) endPart({ type: 'ash', x: B.x + R(-30, 30)*B.s, y: B.feet - R(0, 20), vx: R(-10, 10), vy: R(-50, -20), life: R(1.2, 2), max: 2, size: R(1.5, 3) });
   } else if (endKind === 'bats'){
     if (t > .7 && !endFlags.burst){
-      endFlags.burst = true; shake = .45; buzz(60);
+      endFlags.burst = true; shake = .45; buzz(60); SND.bats();
       for (let i = 0; i < 46; i++){ const a = R(-Math.PI*.95, -Math.PI*.05); endPart({ type: 'bat', x: B.x + R(-30, 30)*B.s, y: B.mid + R(-50, 50)*B.s, vx: Math.cos(a)*R(70, 230), vy: Math.sin(a)*R(60, 200) + R(-30, 30), g: -40, life: R(2.6, 4), max: 4, size: R(1.2, 2.2), rot: Math.random()*7 }); }
       for (let i = 0; i < 18; i++) endPart({ type: 'smoke', x: B.x + R(-40, 40)*B.s, y: B.mid + R(-60, 60)*B.s, vx: R(-20, 20), vy: R(-30, 5), life: R(1.5, 2.5), max: 2.5, size: R(18, 34)*B.s });
     }
   } else if (endKind === 'stone'){
     if (t > 2.7 && !endFlags.crumble){
-      endFlags.crumble = true; shake = .5; buzz(70);
+      endFlags.crumble = true; shake = .5; buzz(70); SND.stone();
       for (let i = 0; i < 60; i++) endPart({ type: 'rock', x: B.x + R(-36, 36)*B.s, y: R(B.top + 10*B.s, B.feet - 10), vx: R(-70, 70), vy: R(-120, 10), g: 700, floor: B.feet + R(-4, 6), life: 9, max: 9, size: R(3, 9)*B.s, rot: Math.random()*7, vr: R(-6, 6), col: ['#8d8f86','#6f716a','#a3a49b','#5a5b55'][i % 4] });
       for (let i = 0; i < 14; i++) endPart({ type: 'smoke', x: B.x + R(-40, 40)*B.s, y: B.feet - R(0, 40)*B.s, vx: R(-30, 30), vy: R(-25, -5), life: R(1.2, 2), max: 2, size: R(16, 30)*B.s, col: 'dust' });
     }
@@ -1323,6 +1447,7 @@ function startDefeat(){
   boss.atk = null; laser = null; hero.ward = false; hero.roll = null; light = null;
   for (const b of bullets) burst(b.x, b.y, b.kind === 'shadow' ? C.shadow : C.blood, 1, 50);
   bullets = []; shake = .5; buzz(140); storm.next = .3; hero.inv = 0;
+  SND.music(false); SND.lose(); if (defKind === 'feast') SND.feast();
 }
 function stepDefeat(dt){
   const B = dracBody(), H = proj(hero.x, hero.y), hy = H.y - LIFT*H.s, t = defT, R = (a, b) => a + Math.random()*(b - a);
@@ -1332,12 +1457,12 @@ function stepDefeat(dt){
     endPart({ type: 'mist', x: sx, y: sy, vx: dx/d*sp + R(-20, 20), vy: dy/d*sp + R(-30, 0), life: d/sp, max: d/sp, size: R(4, 8)*H.s });
   }
   if (defKind === 'bats' && !endFlags.orbit && t > .35){
-    endFlags.orbit = true;
+    endFlags.orbit = true; SND.bats();
     for (let i = 0; i < 22; i++) endPart({ type: 'orbit', x: B.x, y: B.mid, a: i/22*Math.PI*2, r: R(95, 150)*B.s, sp: R(2.0, 3.0)*(i % 2 ? 1 : -1), life: 9, max: 9, size: R(.8, 1.25) });
   }
   if (defKind === 'bats' && t > .4 && Math.random() < 1.6*dt){ storm.next = 0; shake = Math.max(shake, .25); }
   if (defKind === 'laugh' && t > .5 && t < 3.6 && (endFlags.ha || 0) < Math.floor((t - .5)/.42) + 1){
-    endFlags.ha = (endFlags.ha || 0) + 1;
+    endFlags.ha = (endFlags.ha || 0) + 1; SND.laugh();
     endPart({ type: 'ha', x: B.x + R(-40, 40)*B.s, y: B.top + R(0, 20)*B.s, vx: R(-15, 15), vy: -45, life: 1.4, max: 1.4, size: (30 + Math.random()*14)*B.s });
   }
   for (let i = endFx.length - 1; i >= 0; i--){
@@ -1901,7 +2026,7 @@ function stormStep(dt){
   storm.next -= dt;
   if (endKind === 'dawn' && (state === 'ending' || state === 'won')) storm.next = 9;
   if (storm.next <= 0){
-    storm.bolts.push(makeBolt()); storm.flash = 1;
+    storm.bolts.push(makeBolt()); storm.flash = 1; SND.thunder();
     storm.next = Math.random() < .25 ? .18 : (blood ? 1.4 + Math.random()*3 : 3.5 + Math.random()*6);   // sometimes a double strike
   }
   for (const b of storm.bolts) b.life -= dt;
@@ -2190,7 +2315,7 @@ function syncPause(){
 }
 function setPaused(on){
   if (on && !playing()) return;
-  paused = on; syncPause();
+  paused = on; syncPause(); SND.music(!on && state === 'play');
   showLayer(on ? 'pause' : null);
   if (!on) cv.focus({ preventScroll: true });
 }
@@ -2221,10 +2346,10 @@ function start(){
   saveRec(r);
   syncPause();
   document.body.classList.add('in-game');
-  state = 'opening'; openT = 0; cv.focus({ preventScroll: true });
+  state = 'opening'; openT = 0; cv.focus({ preventScroll: true }); SND.open(); SND.music(true);
 }
 function toMenu(){
-  abandonRanked('left');
+  abandonRanked('left'); SND.music(false);
   bot.on = false; paused = false; state = 'closed';
   document.body.classList.remove('in-game');
   if (dayInfo().seed !== DAILY.seed) buildDaily();
@@ -2391,6 +2516,10 @@ function syncCam(){ $('camBtn').textContent = 'Camera moves: ' + (camMove ? 'on'
 function syncCtrl(){ $('ctrlBtn').textContent = 'Controls: ' + (ctrlMode === 'drag' ? 'drag anywhere' : 'thumbstick'); pad.classList.toggle('drag', ctrlMode === 'drag'); }
 $('ctrlBtn').addEventListener('click', () => { ctrlMode = ctrlMode === 'drag' ? 'stick' : 'drag'; drag.px = drag.py = 0; drag.id = null; releaseStick(); try { localStorage.setItem('cc-ctrl', ctrlMode); } catch(e){} syncCtrl(); });
 syncCtrl();
+function syncSound(){ $('musicBtn').textContent = 'Music: ' + (SND.musicOn ? 'on' : 'off'); $('sfxBtn').textContent = 'Sound effects: ' + (SND.sfxOn ? 'on' : 'off'); }
+$('musicBtn').addEventListener('click', () => { SND.init(); SND.setMusic(!SND.musicOn); syncSound(); });
+$('sfxBtn').addEventListener('click', () => { SND.init(); SND.setSfx(!SND.sfxOn); syncSound(); });
+syncSound();
 $('camBtn').addEventListener('click', () => { camMove = !camMove; try { localStorage.setItem('cc-cam', camMove ? '1' : '0'); } catch(e){} syncCam(); });
 syncCam();
 
@@ -2411,6 +2540,7 @@ tapBtn(rb, 'roll'); tapBtn(lb, 'lantern'); tapBtn($('garlicBtn'), 'garlic');
 let last = performance.now(), acc = 0;
 const STEP = 1/120;   // the game always advances in 1/120 s steps, whatever the screen's frame rate
 function frame(now){
+  SND.tick(!!(boss && boss.fury && state === 'play'));
   const dt = Math.min(.1, (now - last)/1000); last = now;
   if (!document.hidden){
     if (ready && !paused){ acc += dt; let n = 0; while (acc >= STEP && n < 12){ update(STEP); acc -= STEP; n++; } if (n === 12) acc = 0; }
