@@ -69,7 +69,7 @@ body.in-game ::selection{background:transparent}
 .bar.st i{background:var(--silver)}
 .bar.boss{position:relative}
 .bar.boss .tick{position:absolute;top:0;bottom:0;width:2px;background:rgba(236,228,214,.8);display:none}
-.story .bar.boss .tick{display:block}
+.bar.boss .tick{display:block}
 .bar.boss.open i{background:var(--gold);box-shadow:0 0 10px var(--gold)}
 .oilchip{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--bone)}
 .bar.oil{width:70px;height:6px}
@@ -233,7 +233,7 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--bone-
 
   <div class="hud" id="hud">
     <div class="tl"><button id="pauseBtn" type="button" aria-label="Pause"><i></i></button><span id="hearts" class="chipbox" role="meter" aria-label="Health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><span class="hpbar"><i id="hpLag" style="width:100%"></i><i id="hpBar" style="width:100%"></i></span><b id="hpNum">100</b></span><span class="chipbox oilchip" id="oilChip" aria-label="Lantern oil"><span>Oil</span><span class="bar oil"><i id="oilBar"></i></span></span></div>
-    <div class="tc"><span id="phaseName">Dracula</span><div class="bar boss" id="bossWrap" aria-hidden="true"><i id="bossBar"></i><b class="tick" style="left:70%"></b><b class="tick" style="left:40%"></b></div><span id="botTag" hidden>Computer playing</span></div>
+    <div class="tc"><span id="phaseName">Dracula</span><div class="bar boss" id="bossWrap" aria-hidden="true"><i id="bossBar"></i><b class="tick" style="left:60%"></b><b class="tick" style="left:25%"></b></div><span id="botTag" hidden>Computer playing</span></div>
     <div class="tr">
       <span class="lbl">Shield <span class="bar st" id="stBarWrap" aria-hidden="true"><i id="stBar"></i></span></span>
       <span class="lbl">Flare charge <span class="bar ln" id="lnBarWrap" aria-hidden="true"><i id="lnBar" style="width:0"></i></span></span>
@@ -304,6 +304,14 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--bone-
         <div class="move"><b>Garlic</b><span>Crushing a bulb (<kbd>G</kbd>) roots Wren for 0.4 seconds: no moving, no shield, no roll, and any hit does double damage. Finish it and a 1.5-second cloud dissolves red shots. Every fifth one leaves a heart shard that heals 10, up to three per cloud. Four shards make a heart. Three bulbs per fight.</span></div>
         <div class="move"><b>Pillar kick</b><span>Roll into a standing pillar and it topples into a low wall that stops everything, beams included, for eight seconds.</span></div>
       </div></div>
+<div><p class="eyebrow">Phases</p>
+      <h2>Three rounds in every fight</h2>
+      <ul class="scoreList">
+        <li><span>Relaxed: two patterns, slower shots, long pauses, softer hits</span><span>100–60%</span></li>
+        <li><span>The push: all four patterns at full pace</span><span>60–25%</span></li>
+        <li><span>Desperate: his fastest and fiercest, but his guard opens longer and your reflections hit 50% harder</span><span>25–0%</span></li>
+      </ul>
+      <p>Each change gives you a short breather. The marks on Dracula's health bar show where they start.</p></div>
 <div><p class="eyebrow">Health</p>
       <h2>Some hits hurt more</h2>
       <ul class="scoreList">
@@ -468,7 +476,16 @@ const GRAZE_GAIN = 6, DODGE_GAIN = 15, PERFECT_GAIN = 4;   // lantern fill per g
 const GARLIC_PER_PHASE = 3, GARLIC_T = 6, GARLIC_R = 52;
 const SLAB_T = 8, SLAB_HP = 40;          // a kicked-over pillar lasts this long / soaks this many shots
 const PERFECT_WIN = 0.153;               // seconds after raising the shield that a block counts as perfect (was 0.18)
-const OPEN_DAILY = 1.4;                  // Dracula's open window after each pattern
+const OPEN_DAILY = 1.4;
+// three phases in every fight: relaxed (teach) -> push (pressure) -> desperate (climax, but with a wider window to finish him)
+//   at: health share where the phase starts · pats: how many of the day's patterns he uses · shot: shot speed ·
+//   rate: attack tempo · gap: pause between attacks (s) · open: guard-open window (s) · dmg: hit damage · reflect: damage of your reflected shots
+const PHASES3 = [
+  { name: 'Relaxed',   at: 1.00, pats: 2, shot: 0.85, rate: 0.85, gap: 0.95, open: 2.0, dmg: 0.75, reflect: 1.0 },
+  { name: 'The push',  at: 0.60, pats: 4, shot: 1.00, rate: 1.00, gap: 0.40, open: 1.5, dmg: 1.00, reflect: 1.0 },
+  { name: 'Desperate', at: 0.25, pats: 4, shot: 1.12, rate: 1.30, gap: 0.15, open: 2.0, dmg: 1.00, reflect: 1.5 }
+];
+const stage = () => PHASES3[(boss && boss.stage) || 0];                  // Dracula's open window after each pattern
 // difficulty: tuned with the computer player at four skill levels across many days (skill2.js)
 const DIFF = { shot: 1.25, gap: 0.22, red: 21, purple: 28, snipe: 33, beam: 39, bossHp: 1.33, shard: 5 };   // 2026-11-03: about 5% easier than the first tuning
 const OIL_MOVE = 2.5, OIL_LIT = 7, OIL_REFLECT = 6, OIL_PERFECT = 10, OIL_SLOW_T = 3, OIL_SLOW = 0.7;
@@ -568,7 +585,7 @@ function reset(){
            oil: 100, slowT: 0, vx: 0, vy: 0, ivx: 0, ivy: 0, bandT: 0, shatterT: 0,
            garlicT: 0, aura: 0, shards: 0, lit: false, light: LIGHT_START };
   const hp0 = DAILY.phase.hp;
-  boss = { x: W/2, y: 150, vx: 0, hitT: 0, phase: 0, hp: hp0, max: hp0, flash: 0, ai: 0, atk: null, gap: 1.2,
+  boss = { x: W/2, y: 150, vx: 0, hitT: 0, phase: 0, stage: 0, hp: hp0, max: hp0, flash: 0, ai: 0, atk: null, gap: 1.2,
            open: 0, mt: 0, blockT: 0, fury: false };
   bullets = []; parts = []; texts = []; laser = null; time = 0; endKind = null; defKind = null; endFx = []; banner = null; garlics = []; light = null; slowT = 0; pickups = [];
   queued.roll = queued.lantern = queued.garlic = false;
@@ -579,7 +596,7 @@ function reset(){
 
 // ---------- bullets ----------
 function fire(x,y,ang,spd,kind,extra){
-  spd *= (twist().speedMul || 1) * DIFF.shot;
+  spd *= (twist().speedMul || 1) * DIFF.shot * (boss && boss.atk !== undefined ? stage().shot : 1);
   if (hero && hero.lit) spd *= LIT_AGGRO;
   const b = { x, y, vx: Math.cos(ang)*spd, vy: Math.sin(ang)*spd, r: kind==='shadow'?5.5:5, kind, own:'boss', t:0 };
   if (extra) Object.assign(b, extra);
@@ -797,7 +814,7 @@ const SND = (() => {
     if (!ac) return; const t = ac.currentTime;
     duck.gain.cancelScheduledValues(t); duck.gain.setTargetAtTime(depth, t, .02); duck.gain.setTargetAtTime(1, t + hold, .25);
   }
-  // ---- music: a slow gothic organ loop; a harpsichord-like arpeggio joins when Dracula is furious
+  // ---- music: a slow gothic organ loop; an arpeggio joins in the push and a driving bass in the desperate phase
   const BPM = 84, BEAT = 60/BPM;
   const PROG = [[50, 53, 57], [46, 50, 53], [43, 46, 50], [45, 49, 52]];   // Dm  Bb  Gm  A (MIDI notes)
   const hz = m => 440*Math.pow(2, (m - 69)/12);
@@ -823,7 +840,8 @@ const SND = (() => {
     while (musicT < ac.currentTime + .25){
       const bar = Math.floor(step/8) % PROG.length, chord = PROG[bar], beatInBar = step % 8;
       if (beatInBar === 0){ for (const m of chord) organ(m, musicT, BEAT*4, .05); organ(chord[0] - 12, musicT, BEAT*4, .07); }
-      if (intensity > .5){ const arp = [chord[0], chord[1], chord[2], chord[1] + 12]; pluck(arp[step % 4] + 12, musicT, .045); }
+      if (intensity >= 2){ const arp = [chord[0], chord[1], chord[2], chord[1] + 12]; pluck(arp[step % 4] + 12, musicT, .05); if (step % 2 === 0) organ(chord[0] - 12, musicT, BEAT/2, .05); }
+      else if (intensity >= 1){ const arp = [chord[0], chord[1], chord[2], chord[1] + 12]; pluck(arp[step % 4] + 12, musicT, .032); }
       else if (beatInBar % 2 === 0) pluck(chord[(beatInBar/2) % 3] + 12, musicT, .022);
       musicT += BEAT/2; step++;
     }
@@ -834,7 +852,7 @@ const SND = (() => {
     setMusic(v){ musicOn = v; try { localStorage.setItem('cc-music', v ? '1' : '0'); } catch(e){} if (ac) musicBus.gain.setTargetAtTime(v ? .32 : 0, ac.currentTime, .1); },
     setSfx(v){ sfxOn = v; try { localStorage.setItem('cc-sfx', v ? '1' : '0'); } catch(e){} if (ac) sfxBus.gain.setTargetAtTime(v ? 1 : 0, ac.currentTime, .05); },
     music(on){ playing = on; if (on && ac){ musicT = ac.currentTime + .05; step = 0; } },
-    tick(fury){ intensity = fury ? 1 : 0; scheduleMusic(); },
+    tick(level){ intensity = level; scheduleMusic(); },
     // ---- effects
     block(){ if (!ok('block', .03)) return; noise(.12, { vol: .32, f: vary(2600), q: 6 }); tone(vary(880), .18, { type: 'triangle', vol: .17 }); },
     perfect(chain){ if (!ok('perfect', .03)) return; const f = 1046*Math.pow(1.122, Math.min(chain, 3) - 1); tone(f, .45, { vol: .2 }); tone(f*1.5, .4, { vol: .1, at: .01 }); tone(f*2, .25, { vol: .05 }); },
@@ -904,7 +922,18 @@ function toggleLantern(){
   } else { say(hero.x, hero.y - 40, 'lantern on', C.gold); SND.lantern(true); }
 }
 // how hard each kind of hit lands, out of 100 health
-function shotDamage(b){
+// a new phase: a breather (the current attack ends, purple shots fade), a banner, then he comes back harder
+function enterStage(n){
+  boss.stage = n; const st = PHASES3[n];
+  if (boss.atk){ ATK[boss.atk.id].end && ATK[boss.atk.id].end(); boss.atk = null; }
+  laser = null; boss.gap = 1.6; boss.open = Math.max(boss.open, 1.0);
+  for (const b of bullets) if (b.own === 'boss' && b.kind === 'shadow'){ burst(b.x, b.y, C.shadow, 1, 40); b.life = 0.001; }
+  banner = { txt: n === 2 ? 'Dracula is desperate' : 'Dracula pushes harder', t: 1.4 };
+  if (n === 2) boss.fury = true;   // red sky, embers, a swaying camera
+  shake = .35; buzz(60); SND.fury();
+}
+function shotDamage(b){ return Math.round(baseDamage(b)*stage().dmg); }
+function baseDamage(b){
   if (b.snipe) return DIFF.snipe;          // camping punishment
   if (b.beam) return DIFF.beam;            // window beam
   if (b.kind === 'shadow') return DIFF.purple;
@@ -1090,16 +1119,12 @@ function update(rdt){
   if (boss.flash > 0) boss.flash -= dt;
   if (state === 'play'){
     if (boss.atk){
-      // below 40% health Dracula fires everything 30% faster
-      const fury = boss.hp/boss.max < 0.4;
-      if (fury && !boss.fury){ boss.fury = true; say(boss.x, boss.y - 60, 'Dracula is furious', '#ff6b7a'); shake = .3; SND.fury(); }
-      const adt = (fury ? dt*1.3 : dt) * (hero.lit ? LIT_AGGRO : 1);
+      const st = stage(), adt = dt * st.rate * (hero.lit ? LIT_AGGRO : 1);
       const a = boss.atk; a.t += adt; ATK[a.id].step(a, adt);
-      if (a.t >= ATK[a.id].dur){ ATK[a.id].end && ATK[a.id].end(); boss.open = OPEN_DAILY; boss.atk = null; boss.gap = DIFF.gap; }
+      if (a.t >= ATK[a.id].dur){ ATK[a.id].end && ATK[a.id].end(); boss.open = st.open; boss.atk = null; boss.gap = st.gap; }
     } else if (!banner) {
       boss.gap -= dt;
-      if (boss.fury) boss.gap -= dt*0.5;
-      if (boss.gap <= 0){ const id = ph.atks[boss.ai % ph.atks.length]; boss.ai++; boss.atk = { id, t: 0 }; SND.attack(DAILY.labels[ph.atks.indexOf(id)] === 'Window beams' ? 'beam' : ''); }
+      if (boss.gap <= 0){ const pool = ph.atks.slice(0, stage().pats), id = pool[boss.ai % pool.length]; boss.ai++; boss.atk = { id, t: 0 }; SND.attack(DAILY.labels[ph.atks.indexOf(id)] === 'Window beams' ? 'beam' : ''); }
     }
   }
 
@@ -1204,11 +1229,13 @@ function update(rdt){
           if (boss.blockT <= 0){ boss.blockT = .5; say(boss.x + (Math.random()*30-15), boss.y-44, 'blocked', '#cfc6dd'); }
           continue;
         }
-        const dmg = b.dmg*2; stats.openHits++;
+        const dmg = Math.round(b.dmg*2*stage().reflect); stats.openHits++;
         boss.hp -= dmg; boss.flash = .08; boss.hitT = .22; SND.bossHit(b.perfect);
         burst(b.x,b.y,b.perfect?C.gold:C.silver,8,120);
         say(boss.x + (Math.random()*30-15), boss.y-44, '-'+dmg, b.perfect?C.gold:'#ffffff');
         if (boss.hp <= 0){ finishFight(); return; }
+        const next = PHASES3[boss.stage + 1];
+        if (next && boss.hp/boss.max <= next.at) enterStage(boss.stage + 1);
       }
     }
   }
@@ -2532,7 +2559,7 @@ tapBtn(rb, 'roll'); tapBtn(lb, 'lantern'); tapBtn($('garlicBtn'), 'garlic');
 let last = performance.now(), acc = 0;
 const STEP = 1/120;   // the game always advances in 1/120 s steps, whatever the screen's frame rate
 function frame(now){
-  SND.tick(!!(boss && boss.fury && state === 'play'));
+  SND.tick(boss && state === 'play' ? boss.stage || 0 : 0);
   const dt = Math.min(.1, (now - last)/1000); last = now;
   if (!document.hidden){
     if (ready && !paused){ acc += dt; let n = 0; while (acc >= STEP && n < 12){ update(STEP); acc -= STEP; n++; } if (n === 12) acc = 0; }

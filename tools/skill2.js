@@ -13,7 +13,7 @@ resize();`);
  html = '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>[hidden]{display:none!important}body{margin:0}</style>' + html;
  require('fs').writeFileSync('skilltest2.html', html);
  await p.goto('file://'+process.cwd()+'/skilltest2.html'); await p.waitForTimeout(800);
- const levels = [['novice', .35, 60, 1.8, .35], ['casual', .22, 40, 1.4, .27], ['average', .12, 22, 1.0, .2], ['expert', .02, 5, .45, .1]];
+ const levels = [['novice', .35, 60, 1.8, .35], ['casual', .22, 40, 1.4, .27], ['average', .12, 22, 1.0, .2]];
  for (const [name, m, s, r, rp] of levels){
    let w = 0, n = 0, dmg = 0, to = 0, T = 0;
    for (let d = 0; d < DAYS; d++){ const res = await p.evaluate(a => __run(...a), [d*2, m, s, r, rp, N]); w += res.w; n += N; dmg += res.dmg*N; to += res.to; T += res.T*N; }
